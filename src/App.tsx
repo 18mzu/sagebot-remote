@@ -247,10 +247,14 @@ export function App() {
     const storedToken = localStorage.getItem('sagebot_secret_token') || undefined;
     const proposedName = getDeviceDefaultName();
 
+    let pairRequestSent = false;
+    let approvalReceived = false;
+
     const sendPairRequest = (bridge: RemoteBridge) => {
       bridge.send({
-        type: 'request_pair',
+        type: 'verify_pair',
         client_id: clientId,
+        code: cleanRoom,
         token: storedToken,
         proposed_name: proposedName,
       });
@@ -258,22 +262,34 @@ export function App() {
 
     const bridge = new RemoteBridge(cleanRoom, 'mobile', {
       onBrokerReady: () => {
-        sendPairRequest(bridge);
-        if (!storedToken) {
-          setIsConnecting(false);
-          setIsPendingApproval(true);
-        }
-        if (!handshakeIntervalRef.current) {
-          handshakeIntervalRef.current = setInterval(() => {
-            if (!connectedRef.current) {
-              sendPairRequest(bridge);
-            }
-          }, 1500);
+        if (!pairRequestSent) {
+          pairRequestSent = true;
+          sendPairRequest(bridge);
         }
       },
       onMessage: (data: any) => {
         const msg = data as RemoteMessage;
         if (!msg || !msg.type) return;
+
+        if (msg.type === 'invalid_code') {
+          clearHandshakeTimers();
+          bridge.destroy();
+          bridgeRef.current = null;
+          connectedRef.current = false;
+          setIsConnected(false);
+          setIsConnecting(false);
+          setIsPendingApproval(false);
+          setConnectionError(msg.message || 'Code is invalid. Check code on PC.');
+          return;
+        }
+
+        if (msg.type === 'approval_required') {
+          approvalReceived = true;
+          setIsConnecting(false);
+          setIsPendingApproval(true);
+          setConnectionError('');
+          return;
+        }
 
         if (msg.type === 'pair_approved') {
           if (msg.token) {
@@ -311,7 +327,7 @@ export function App() {
           setIsPendingApproval(false);
           localStorage.removeItem('sagebot_secret_token');
           localStorage.removeItem('sagebot_room_code');
-          setConnectionError('Host reset remote pairing code. All devices disconnected.');
+          setConnectionError('Host reset remote pairing code. Please enter the new code.');
           return;
         }
 
@@ -368,11 +384,17 @@ export function App() {
     bridgeRef.current = bridge;
 
     handshakeTimeoutRef.current = setTimeout(() => {
-      if (!connectedRef.current) {
+      if (!connectedRef.current && !approvalReceived) {
         setIsConnecting(false);
-        setIsPendingApproval(true);
+        setIsPendingApproval(false);
+        setConnectionError('Code is invalid or SageBot PC is not running.');
+        clearHandshakeTimers();
+        if (bridgeRef.current) {
+          bridgeRef.current.destroy();
+          bridgeRef.current = null;
+        }
       }
-    }, 3000);
+    }, 6000);
   };
 
   const sendAction = (action: string, payload?: any) => {

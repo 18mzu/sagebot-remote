@@ -114,8 +114,11 @@ export interface RemoteMessage {
   | "notification"
   | "pair_approved"
   | "pair_denied"
+  | "approval_required"
+  | "invalid_code"
   | "force_logout";
   payload?: any;
+  message?: string;
   token?: string;
   client_id?: string;
   device_name?: string;
