@@ -247,11 +247,11 @@ export function App() {
     const storedToken = localStorage.getItem('sagebot_secret_token') || undefined;
     const proposedName = getDeviceDefaultName();
 
-    let pairRequestSent = false;
     let approvalReceived = false;
 
-    const sendPairRequest = (bridge: RemoteBridge) => {
-      bridge.send({
+    const sendPairRequest = (b: RemoteBridge) => {
+      if (connectedRef.current || approvalReceived) return;
+      b.send({
         type: 'verify_pair',
         client_id: clientId,
         code: cleanRoom,
@@ -262,9 +262,15 @@ export function App() {
 
     const bridge = new RemoteBridge(cleanRoom, 'mobile', {
       onBrokerReady: () => {
-        if (!pairRequestSent) {
-          pairRequestSent = true;
-          sendPairRequest(bridge);
+        sendPairRequest(bridge);
+        if (!handshakeIntervalRef.current) {
+          handshakeIntervalRef.current = setInterval(() => {
+            if (!connectedRef.current && !approvalReceived) {
+              sendPairRequest(bridge);
+            } else {
+              clearHandshakeTimers();
+            }
+          }, 1800);
         }
       },
       onMessage: (data: any) => {
@@ -285,6 +291,7 @@ export function App() {
 
         if (msg.type === 'approval_required') {
           approvalReceived = true;
+          clearHandshakeTimers();
           setIsConnecting(false);
           setIsPendingApproval(true);
           setConnectionError('');
@@ -394,7 +401,7 @@ export function App() {
           bridgeRef.current = null;
         }
       }
-    }, 6000);
+    }, 10000);
   };
 
   const sendAction = (action: string, payload?: any) => {
@@ -420,6 +427,26 @@ export function App() {
       }
     };
   }, []);
+
+  // Auto-reconnect when device wakes from background or network recovers
+  useEffect(() => {
+    const handleResume = () => {
+      if (document.visibilityState === 'visible' && roomCode && !connectedRef.current && !isConnecting) {
+        connectToPC(roomCode);
+      }
+    };
+    const handleOnline = () => {
+      if (roomCode && !connectedRef.current && !isConnecting) {
+        connectToPC(roomCode);
+      }
+    };
+    document.addEventListener('visibilitychange', handleResume);
+    window.addEventListener('online', handleOnline);
+    return () => {
+      document.removeEventListener('visibilitychange', handleResume);
+      window.removeEventListener('online', handleOnline);
+    };
+  }, [roomCode, isConnecting]);
 
   const handleDisconnect = () => {
     clearHandshakeTimers();
