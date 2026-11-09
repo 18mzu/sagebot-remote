@@ -46,6 +46,9 @@ export interface MobileBotConfig {
 }
 
 export interface RemoteMessage {
-  type: "status" | "config" | "roster" | "screenshot" | "log" | "toast" | "action_ack";
+  type: "sync" | "status" | "config" | "roster" | "screenshot" | "log" | "toast" | "action_ack";
   payload?: any;
+  status?: MobileClientStatus;
+  config?: MobileBotConfig;
+  roster?: PlayerRosterItem[];
 }

@@ -131,8 +131,15 @@
 }
 
 @keyframes toastFade {
-  from { opacity: 0; transform: translate(-50%, -10px); }
-  to { opacity: 1; transform: translate(-50%, 0); }
+  from {
+    opacity: 0;
+    transform: translate(-50%, -10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
 }
 
 /* Body / Container */
@@ -376,8 +383,13 @@
   text-overflow: ellipsis;
 }
 
-.slot-value.online { color: var(--accent-emerald); }
-.slot-value.offline { color: var(--text-tertiary); }
+.slot-value.online {
+  color: var(--accent-emerald);
+}
+
+.slot-value.offline {
+  color: var(--text-tertiary);
+}
 
 /* Quick Actions */
 .quick-actions-bar {
@@ -448,7 +460,9 @@
   padding: 12px 14px;
   display: flex;
   flex-direction: column;
-  transition: all 0.12s ease;
+  text-align: left;
+  width: 100%;
+  transition: border-color 0.12s ease, background-color 0.12s ease;
 }
 
 .toggle-tile.active {
@@ -460,6 +474,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  width: 100%;
   margin-bottom: 8px;
   color: var(--text-secondary);
 }
@@ -540,11 +555,11 @@
 }
 
 .player-row.blue {
-  border-left: 3px solid var(--accent-cyan);
+  border-color: rgba(56, 189, 248, 0.25);
 }
 
 .player-row.red {
-  border-left: 3px solid var(--accent-rose);
+  border-color: rgba(244, 63, 94, 0.25);
 }
 
 .player-left {
@@ -564,6 +579,16 @@
   font-size: 11px;
   font-weight: 800;
   color: var(--text-secondary);
+}
+
+.player-row.blue .avatar-capsule {
+  background: rgba(56, 189, 248, 0.12);
+  color: var(--accent-cyan);
+}
+
+.player-row.red .avatar-capsule {
+  background: rgba(244, 63, 94, 0.12);
+  color: var(--accent-rose);
 }
 
 .player-name-line {
@@ -606,7 +631,8 @@
   color: var(--text-tertiary);
 }
 
-.empty-roster-state, .empty-screenshot-state {
+.empty-roster-state,
+.empty-screenshot-state {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -617,13 +643,15 @@
   color: var(--text-secondary);
 }
 
-.empty-roster-state p, .empty-screenshot-state p {
+.empty-roster-state p,
+.empty-screenshot-state p {
   font-size: 15px;
   font-weight: 700;
   color: #ffffff;
 }
 
-.empty-roster-state span, .empty-screenshot-state span {
+.empty-roster-state span,
+.empty-screenshot-state span {
   font-size: 12px;
   color: var(--text-tertiary);
   max-width: 280px;

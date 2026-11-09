@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from 'react';
-import Peer, { type DataConnection } from 'peerjs';
 import {
   Shield,
   WifiOff,
@@ -17,12 +16,29 @@ import {
   AlertTriangle,
   Flame,
 } from 'lucide-react';
+import { RemoteBridge } from './remoteBridge';
 import type { MobileClientStatus, MobileBotConfig, PlayerRosterItem, RemoteMessage } from './types';
 import './App.css';
 
 export function App() {
-  const [roomCode, setRoomCode] = useState<string>(() => localStorage.getItem('sagebot_room_code') || '');
-  const [pinInput, setPinInput] = useState<string>('');
+  const [roomCode, setRoomCode] = useState<string>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const urlRoom = params.get('room');
+    if (urlRoom && urlRoom.trim().length >= 4) {
+      const clean = urlRoom.trim().toUpperCase();
+      localStorage.setItem('sagebot_room_code', clean);
+      return clean;
+    }
+    return localStorage.getItem('sagebot_room_code') || '';
+  });
+  const [pinInput, setPinInput] = useState<string>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const urlRoom = params.get('room');
+    if (urlRoom && urlRoom.trim().length >= 4) {
+      return urlRoom.trim().toUpperCase();
+    }
+    return localStorage.getItem('sagebot_room_code') || '';
+  });
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [isConnecting, setIsConnecting] = useState<boolean>(false);
   const [connectionError, setConnectionError] = useState<string>('');
@@ -38,7 +54,7 @@ export function App() {
     auto_queue_enabled: false,
     auto_queue_mode: 'competitive',
     lock_random_agent: false,
-    low_detail: false
+    low_detail: false,
   });
   const [roster, setRoster] = useState<PlayerRosterItem[]>([]);
   const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
@@ -46,10 +62,23 @@ export function App() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Active view tab
-  const [activeTab, setActiveTab] = useState<'status' | 'controls' | 'roster' | 'screenshot'>('status');
+  const [activeTab, setActiveTab] = useState<'status' | 'roster' | 'screenshot'>('status');
 
-  const peerRef = useRef<Peer | null>(null);
-  const connRef = useRef<DataConnection | null>(null);
+  const bridgeRef = useRef<RemoteBridge | null>(null);
+  const connectedRef = useRef<boolean>(false);
+  const handshakeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const handshakeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearHandshakeTimers = () => {
+    if (handshakeIntervalRef.current) {
+      clearInterval(handshakeIntervalRef.current);
+      handshakeIntervalRef.current = null;
+    }
+    if (handshakeTimeoutRef.current) {
+      clearTimeout(handshakeTimeoutRef.current);
+      handshakeTimeoutRef.current = null;
+    }
+  };
 
   // Auto show toast helper
   const showToast = (msg: string) => {
@@ -59,62 +88,58 @@ export function App() {
     }, 3200);
   };
 
-  // Check URL query parameters for ?room=xxxxxx (e.g. from scanned QR code)
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const urlRoom = params.get('room');
-    if (urlRoom && urlRoom.length === 6) {
-      setRoomCode(urlRoom);
-      setPinInput(urlRoom);
-      localStorage.setItem('sagebot_room_code', urlRoom);
-    }
-  }, []);
-
-  // Connect to PC Peer
+  // Connect to PC over Dual-Broker WSS Bridge
   const connectToPC = (targetRoom: string) => {
-    if (!targetRoom || targetRoom.length < 4) {
+    const cleanRoom = targetRoom.trim().toUpperCase();
+    if (!cleanRoom || cleanRoom.length < 4) {
       setConnectionError('Please enter a valid 6-digit room code');
       return;
     }
 
+    setRoomCode(cleanRoom);
+    setPinInput(cleanRoom);
     setIsConnecting(true);
     setConnectionError('');
+    connectedRef.current = false;
+    clearHandshakeTimers();
 
-    if (peerRef.current) {
-      peerRef.current.destroy();
+    if (bridgeRef.current) {
+      bridgeRef.current.destroy();
+      bridgeRef.current = null;
     }
 
-    const peer = new Peer({
-      debug: 1,
-      config: {
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:global.stun.twilio.com:3478' }
-        ]
-      }
-    });
-    peerRef.current = peer;
-
-    peer.on('open', () => {
-      const pcPeerId = `sagebot-pc-${targetRoom.trim().toLowerCase()}`;
-      const conn = peer.connect(pcPeerId, { reliable: true });
-      connRef.current = conn;
-
-      conn.on('open', () => {
-        setIsConnected(true);
-        setIsConnecting(false);
-        setConnectionError('');
-        localStorage.setItem('sagebot_room_code', targetRoom);
-        showToast('Connected to SageBot PC');
-        // Request initial status & config
-        conn.send({ type: 'request_sync' });
-      });
-
-      conn.on('data', (data: any) => {
+    const bridge = new RemoteBridge(cleanRoom, 'mobile', {
+      onBrokerReady: () => {
+        // Immediately request sync and poll until PC responds
+        bridge.send({ action: 'request_sync', type: 'request_sync' });
+        if (!handshakeIntervalRef.current) {
+          handshakeIntervalRef.current = setInterval(() => {
+            if (!connectedRef.current) {
+              bridge.send({ action: 'request_sync', type: 'request_sync' });
+            }
+          }, 1200);
+        }
+      },
+      onMessage: (data: any) => {
         const msg = data as RemoteMessage;
         if (!msg || !msg.type) return;
 
+        if (!connectedRef.current) {
+          connectedRef.current = true;
+          clearHandshakeTimers();
+          setIsConnected(true);
+          setIsConnecting(false);
+          setConnectionError('');
+          localStorage.setItem('sagebot_room_code', cleanRoom);
+          showToast('Connected to SageBot PC');
+        }
+
         switch (msg.type) {
+          case 'sync':
+            if (msg.status) setStatus(msg.status);
+            if (msg.config) setBotConfig((prev) => ({ ...prev, ...msg.config }));
+            if (msg.roster) setRoster(msg.roster);
+            break;
           case 'status':
             setStatus(msg.payload);
             break;
@@ -129,58 +154,61 @@ export function App() {
             setIsCapturingScreenshot(false);
             break;
           case 'toast':
-            showToast(msg.payload);
-            break;
           case 'action_ack':
-            showToast(msg.payload);
+            if (msg.payload) showToast(msg.payload);
             break;
         }
-      });
-
-      conn.on('close', () => {
-        setIsConnected(false);
-        setIsConnecting(false);
-        setConnectionError('Connection closed by PC.');
-      });
-
-      conn.on('error', (err) => {
-        setIsConnected(false);
-        setIsConnecting(false);
-        setConnectionError(`Error connecting: ${err}`);
-      });
+      },
     });
 
-    peer.on('error', (_err) => {
-      setIsConnecting(false);
-      setIsConnected(false);
-      setConnectionError(`Connection failed. Check room code or ensure SageBot PC is running.`);
-    });
+    bridgeRef.current = bridge;
+
+    handshakeTimeoutRef.current = setTimeout(() => {
+      if (!connectedRef.current) {
+        setIsConnecting(false);
+        setConnectionError(
+          `Waiting for SageBot PC (${cleanRoom})... Make sure SageBot is open on your PC and the 6-digit code matches.`
+        );
+      }
+    }, 8000);
   };
 
   // Send control action to PC
   const sendAction = (action: string, payload?: any) => {
-    if (!connRef.current || !isConnected) {
+    if (!bridgeRef.current || !isConnected) {
       showToast('Not connected to PC');
       return;
     }
-    connRef.current.send({
+    bridgeRef.current.send({
       type: 'action',
       action,
-      payload
+      payload,
     });
   };
 
-  // Auto connect if roomCode was stored
+  // Auto connect if roomCode was stored or passed via QR URL
   useEffect(() => {
     if (roomCode && !isConnected && !isConnecting) {
       connectToPC(roomCode);
     }
+    return () => {
+      clearHandshakeTimers();
+      if (bridgeRef.current) {
+        bridgeRef.current.destroy();
+      }
+    };
   }, []);
 
   const handleDisconnect = () => {
-    if (connRef.current) connRef.current.close();
-    if (peerRef.current) peerRef.current.destroy();
+    clearHandshakeTimers();
+    if (bridgeRef.current) {
+      bridgeRef.current.destroy();
+      bridgeRef.current = null;
+    }
+    connectedRef.current = false;
     setIsConnected(false);
+    setIsConnecting(false);
+    setConnectionError('');
     setStatus(null);
     localStorage.removeItem('sagebot_room_code');
     setRoomCode('');
@@ -251,7 +279,7 @@ export function App() {
             <WifiOff size={18} color="#94a3b8" />
           </button>
         ) : (
-          <button className="icon-btn-header" onClick={() => connectToPC(roomCode || pinInput)} aria-label="Reconnect">
+          <button className="icon-btn-header" onClick={() => connectToPC(pinInput || roomCode)} aria-label="Reconnect">
             <RefreshCw size={18} color="#38bdf8" />
           </button>
         )}
@@ -278,18 +306,15 @@ export function App() {
                 placeholder="6-DIGIT CODE"
                 value={pinInput}
                 onChange={(e) => setPinInput(e.target.value.toUpperCase())}
-                className="pin-code-input"
+                className="pin-code-input tabular-nums"
                 autoComplete="off"
                 autoCorrect="off"
                 spellCheck="false"
               />
               <button
                 className="connect-btn"
-                disabled={isConnecting || pinInput.length < 4}
-                onClick={() => {
-                  setRoomCode(pinInput);
-                  connectToPC(pinInput);
-                }}
+                disabled={isConnecting || pinInput.trim().length < 4}
+                onClick={() => connectToPC(pinInput)}
               >
                 {isConnecting ? 'Connecting...' : 'Connect to PC'}
               </button>
@@ -303,7 +328,7 @@ export function App() {
             )}
 
             <div className="pairing-hint">
-              <span>💡 Scanning the QR code on PC connects automatically with zero typing.</span>
+              <span>Scanning the QR code on PC connects automatically with zero typing.</span>
             </div>
           </div>
         </main>
@@ -332,18 +357,18 @@ export function App() {
                 {status?.match_state === 'In Game' ? (
                   <div className="score-hero">
                     <div className="score-team ally">
-                      <span className="score-num">{status.score_ally}</span>
+                      <span className="score-num tabular-nums">{status.score_ally}</span>
                       <span className="score-tag">ALLY</span>
                     </div>
                     <span className="score-divider">:</span>
                     <div className="score-team enemy">
-                      <span className="score-num">{status.score_enemy}</span>
+                      <span className="score-num tabular-nums">{status.score_enemy}</span>
                       <span className="score-tag">ENEMY</span>
                     </div>
                   </div>
                 ) : (
                   <div className="match-idle-hero">
-                    <span className="map-name-display">{status?.map_name !== '-' ? status?.map_name : 'No Active Match'}</span>
+                    <span className="map-name-display">{status?.map_name && status.map_name !== '-' ? status.map_name : 'No Active Match'}</span>
                     <span className="agent-name-display">
                       {status?.current_agent && status.current_agent !== '-'
                         ? `Playing as ${status.current_agent}`
@@ -404,7 +429,8 @@ export function App() {
               </div>
 
               <div className="toggles-grid">
-                <div
+                <button
+                  type="button"
                   className={`toggle-tile ${botConfig.anti_afk_enabled ? 'active' : ''}`}
                   onClick={() => sendAction('toggle_anti_afk')}
                 >
@@ -414,9 +440,10 @@ export function App() {
                   </div>
                   <span className="tile-label">Anti-AFK</span>
                   <span className="tile-sub">Bypass AFK detection</span>
-                </div>
+                </button>
 
-                <div
+                <button
+                  type="button"
                   className={`toggle-tile ${botConfig.auto_queue_enabled ? 'active' : ''}`}
                   onClick={() => sendAction('toggle_auto_queue')}
                 >
@@ -426,9 +453,10 @@ export function App() {
                   </div>
                   <span className="tile-label">Auto Queue</span>
                   <span className="tile-sub">{botConfig.auto_queue_mode || 'Competitive'}</span>
-                </div>
+                </button>
 
-                <div
+                <button
+                  type="button"
                   className={`toggle-tile ${botConfig.auto_ff_enabled ? 'active' : ''}`}
                   onClick={() => sendAction('toggle_auto_ff')}
                 >
@@ -438,9 +466,10 @@ export function App() {
                   </div>
                   <span className="tile-label">Auto /ff</span>
                   <span className="tile-sub">Surrender votes</span>
-                </div>
+                </button>
 
-                <div
+                <button
+                  type="button"
                   className={`toggle-tile ${botConfig.auto_kj_turret ? 'active' : ''}`}
                   onClick={() => sendAction('toggle_auto_kj')}
                 >
@@ -450,9 +479,10 @@ export function App() {
                   </div>
                   <span className="tile-label">KJ Turret</span>
                   <span className="tile-sub">Auto place in round</span>
-                </div>
+                </button>
 
-                <div
+                <button
+                  type="button"
                   className={`toggle-tile ${botConfig.auto_reconnect ? 'active' : ''}`}
                   onClick={() => sendAction('toggle_auto_reconnect')}
                 >
@@ -462,9 +492,10 @@ export function App() {
                   </div>
                   <span className="tile-label">Auto Reconnect</span>
                   <span className="tile-sub">Relaunch if crashed</span>
-                </div>
+                </button>
 
-                <div
+                <button
+                  type="button"
                   className={`toggle-tile ${botConfig.lock_random_agent ? 'active' : ''}`}
                   onClick={() => sendAction('toggle_random_agent')}
                 >
@@ -474,7 +505,7 @@ export function App() {
                   </div>
                   <span className="tile-label">Random Agent</span>
                   <span className="tile-sub">Pick from queue</span>
-                </div>
+                </button>
               </div>
             </div>
           )}
@@ -487,7 +518,7 @@ export function App() {
                   <h3 className="section-title">Match Roster</h3>
                   <span className="section-subtitle">Real ranks, unmasked identities & K/D rates</span>
                 </div>
-                <button className="icon-btn-refresh" onClick={() => sendAction('refresh_roster')}>
+                <button className="icon-btn-refresh" onClick={() => sendAction('refresh_roster')} aria-label="Refresh roster">
                   <RefreshCw size={16} />
                 </button>
               </div>
@@ -509,7 +540,7 @@ export function App() {
                         <div className="player-meta">
                           <div className="player-name-line">
                             <span className="player-name">{player.game_name}</span>
-                            <span className="player-tag">#{player.tag_line}</span>
+                            {player.tag_line && <span className="player-tag">#{player.tag_line}</span>}
                           </div>
                           <span className="player-agent-sub">{player.agent_name}</span>
                         </div>
@@ -517,7 +548,7 @@ export function App() {
 
                       <div className="player-right">
                         <span className="player-rank-badge">{player.current_rank_name}</span>
-                        <span className="player-winrate-stat">{player.win_rate || '-'}</span>
+                        <span className="player-winrate-stat tabular-nums">{player.win_rate || '-'}</span>
                       </div>
                     </div>
                   ))}
