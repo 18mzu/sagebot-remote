@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
 import {
-  Shield,
   Activity,
   Users,
   ShoppingBag,
@@ -12,11 +11,11 @@ import {
   LogOut,
   Skull,
   Bell,
-  Coins,
   Clock,
   Terminal,
   ClipboardPaste,
   Check,
+  Radio,
 } from 'lucide-react';
 import { RemoteBridge } from './remoteBridge';
 import type {
@@ -28,6 +27,38 @@ import type {
   RemoteMessage,
 } from './types';
 import './App.css';
+
+interface NotifPreferences {
+  disconnect: boolean;
+  status: boolean;
+  rank: boolean;
+}
+
+const getOrCreateClientId = (): string => {
+  let id = localStorage.getItem('sagebot_client_id');
+  if (!id) {
+    id = 'dev_' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
+    localStorage.setItem('sagebot_client_id', id);
+  }
+  return id;
+};
+
+const getDeviceDefaultName = (): string => {
+  const ua = navigator.userAgent;
+  if (/iPhone/i.test(ua)) return 'iPhone';
+  if (/iPad/i.test(ua)) return 'iPad';
+  if (/Android/i.test(ua)) return 'Android Device';
+  return 'Mobile Browser';
+};
+
+const formatCountdownDHMS = (totalSecs?: number): string => {
+  if (!totalSecs || totalSecs <= 0) return '00:00:00:00';
+  const days = Math.floor(totalSecs / 86400);
+  const hours = Math.floor((totalSecs % 86400) / 3600);
+  const mins = Math.floor((totalSecs % 3600) / 60);
+  const secs = Math.floor(totalSecs % 60);
+  return `${days.toString().padStart(2, '0')}:${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+};
 
 export function App() {
   const [roomCode, setRoomCode] = useState<string>(() => {
@@ -52,6 +83,7 @@ export function App() {
 
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [isConnecting, setIsConnecting] = useState<boolean>(false);
+  const [isPendingApproval, setIsPendingApproval] = useState<boolean>(false);
   const [connectionError, setConnectionError] = useState<string>('');
 
   // Exactly 4 primary footer tabs: 'status' | 'tracker' | 'shop' | 'settings'
@@ -62,6 +94,7 @@ export function App() {
   const [botRunning, setBotRunning] = useState<boolean>(false);
   const [roster, setRoster] = useState<LiveMatchRoster | null>(null);
   const [storefront, setStorefront] = useState<StorefrontData | null>(null);
+  const [dailySeconds, setDailySeconds] = useState<number>(0);
   const [logs, setLogs] = useState<string[]>([]);
   const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
   const [isCapturingScreenshot, setIsCapturingScreenshot] = useState<boolean>(false);
@@ -72,6 +105,17 @@ export function App() {
   const [showKillConfirm, setShowKillConfirm] = useState<boolean>(false);
   const [hasNotifPermission, setHasNotifPermission] = useState<boolean>(() => {
     return typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted';
+  });
+
+  // Notification Preferences
+  const [notifPrefs, setNotifPrefs] = useState<NotifPreferences>(() => {
+    try {
+      const raw = localStorage.getItem('sagebot_notif_prefs');
+      if (raw) return JSON.parse(raw);
+    } catch {
+      // fallback
+    }
+    return { disconnect: true, status: true, rank: true };
   });
 
   const bridgeRef = useRef<RemoteBridge | null>(null);
@@ -97,21 +141,40 @@ export function App() {
     }, 2800);
   };
 
-  // Trigger Native OS push notification (iOS Home Screen PWA & Android)
-  const triggerNativeNotification = (title: string, body: string, tag: string) => {
+  const updateNotifPref = (key: keyof NotifPreferences, val: boolean) => {
+    setNotifPrefs((prev) => {
+      const updated = { ...prev, [key]: val };
+      localStorage.setItem('sagebot_notif_prefs', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  // Local 1-second ticking countdown for daily offers
+  useEffect(() => {
+    if (dailySeconds <= 0) return;
+    const timer = setInterval(() => {
+      setDailySeconds((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [dailySeconds]);
+
+  // Trigger Native OS push notification (strictly titled "SageBot")
+  const triggerNativeNotification = (body: string, tag: string) => {
+    const cleanTitle = 'SageBot';
+
     // 1. Send to Service Worker for background system lockscreen notification
     if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
       navigator.serviceWorker.controller.postMessage({
         type: 'SHOW_NOTIFICATION',
-        title,
+        title: cleanTitle,
         body,
         tag,
       });
     } else if ('Notification' in window && Notification.permission === 'granted') {
       try {
-        new Notification(title, {
+        new Notification(cleanTitle, {
           body,
-          icon: '/icon-192.png',
+          icon: '/sage.ico',
           tag,
         });
       } catch {
@@ -130,19 +193,29 @@ export function App() {
   };
 
   const handleIncomingNotification = (notif: RemoteNotification) => {
-    setIncomingNotification(notif);
-    triggerNativeNotification(notif.title, notif.message, notif.eventType);
+    // Check preferences
+    const eventType = notif.eventType || '';
+    if (eventType.includes('disconnect') && !notifPrefs.disconnect) return;
+    if ((eventType.includes('status') || eventType.includes('match') || eventType.includes('ready')) && !notifPrefs.status) return;
+    if (eventType.includes('rank') && !notifPrefs.rank) return;
+
+    const cleanNotif: RemoteNotification = {
+      ...notif,
+      title: 'SageBot',
+    };
+    setIncomingNotification(cleanNotif);
+    triggerNativeNotification(notif.message, notif.eventType);
 
     setTimeout(() => {
       setIncomingNotification((prev) => (prev?.timestamp === notif.timestamp ? null : prev));
     }, 5500);
   };
 
-  // Connect to PC over Dual-Broker WSS Bridge
+  // Connect to PC over Dual-Broker WSS Bridge with 8-character code + Pair Approval
   const connectToPC = (targetRoom: string) => {
     const cleanRoom = targetRoom.trim().toUpperCase();
     if (!cleanRoom || cleanRoom.length < 4) {
-      setConnectionError('Please enter your 6-digit room code');
+      setConnectionError('Please enter your 8-character pairing code');
       return;
     }
 
@@ -150,12 +223,13 @@ export function App() {
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission().then((perm) => {
         setHasNotifPermission(perm === 'granted');
-      }).catch(() => {});
+      }).catch(() => { });
     }
 
     setRoomCode(cleanRoom);
     setPinInput(cleanRoom);
     setIsConnecting(true);
+    setIsPendingApproval(false);
     setConnectionError('');
     connectedRef.current = false;
     clearHandshakeTimers();
@@ -165,26 +239,79 @@ export function App() {
       bridgeRef.current = null;
     }
 
+    const clientId = getOrCreateClientId();
+    const storedToken = localStorage.getItem('sagebot_secret_token') || undefined;
+    const proposedName = getDeviceDefaultName();
+
+    const sendPairRequest = (bridge: RemoteBridge) => {
+      bridge.send({
+        type: 'request_pair',
+        client_id: clientId,
+        token: storedToken,
+        proposed_name: proposedName,
+      });
+      bridge.send({ action: 'request_sync', type: 'request_sync' });
+    };
+
     const bridge = new RemoteBridge(cleanRoom, 'mobile', {
       onBrokerReady: () => {
-        bridge.send({ action: 'request_sync', type: 'request_sync' });
+        sendPairRequest(bridge);
         if (!handshakeIntervalRef.current) {
           handshakeIntervalRef.current = setInterval(() => {
             if (!connectedRef.current) {
-              bridge.send({ action: 'request_sync', type: 'request_sync' });
+              sendPairRequest(bridge);
             }
-          }, 1200);
+          }, 1400);
         }
       },
       onMessage: (data: any) => {
         const msg = data as RemoteMessage;
         if (!msg || !msg.type) return;
 
-        if (!connectedRef.current) {
+        if (msg.type === 'pair_approved') {
+          if (msg.token) {
+            localStorage.setItem('sagebot_secret_token', msg.token);
+          }
+          setIsPendingApproval(false);
           connectedRef.current = true;
           clearHandshakeTimers();
           setIsConnected(true);
           setIsConnecting(false);
+          setConnectionError('');
+          localStorage.setItem('sagebot_room_code', cleanRoom);
+          showToast(`Connected to SageBot PC`);
+          return;
+        }
+
+        if (msg.type === 'pair_denied') {
+          setIsPendingApproval(false);
+          setIsConnecting(false);
+          setConnectionError('Pairing request was denied on SageBot PC.');
+          clearHandshakeTimers();
+          bridge.destroy();
+          return;
+        }
+
+        if (msg.type === 'force_logout') {
+          clearHandshakeTimers();
+          bridge.destroy();
+          bridgeRef.current = null;
+          connectedRef.current = false;
+          setIsConnected(false);
+          setIsConnecting(false);
+          setIsPendingApproval(false);
+          localStorage.removeItem('sagebot_secret_token');
+          setConnectionError('Host reset remote pairing code. All devices disconnected.');
+          return;
+        }
+
+        if (!connectedRef.current) {
+          // If we receive sync or status directly (e.g. approved prior)
+          connectedRef.current = true;
+          clearHandshakeTimers();
+          setIsConnected(true);
+          setIsConnecting(false);
+          setIsPendingApproval(false);
           setConnectionError('');
           localStorage.setItem('sagebot_room_code', cleanRoom);
           showToast('Connected to SageBot PC');
@@ -195,7 +322,12 @@ export function App() {
             if (msg.status) setStatus(msg.status);
             if (typeof msg.bot_running === 'boolean') setBotRunning(msg.bot_running);
             if (msg.roster) setRoster(msg.roster);
-            if (msg.storefront) setStorefront(msg.storefront);
+            if (msg.storefront) {
+              setStorefront(msg.storefront);
+              if (typeof msg.storefront.daily_seconds_remaining === 'number') {
+                setDailySeconds(msg.storefront.daily_seconds_remaining);
+              }
+            }
             if (msg.logs) setLogs(msg.logs);
             break;
           case 'status':
@@ -206,6 +338,9 @@ export function App() {
             break;
           case 'storefront':
             setStorefront(msg.payload || null);
+            if (typeof msg.payload?.daily_seconds_remaining === 'number') {
+              setDailySeconds(msg.payload.daily_seconds_remaining);
+            }
             break;
           case 'log':
             if (typeof msg.payload === 'string') {
@@ -234,11 +369,12 @@ export function App() {
     handshakeTimeoutRef.current = setTimeout(() => {
       if (!connectedRef.current) {
         setIsConnecting(false);
+        setIsPendingApproval(true);
         setConnectionError(
-          `Waiting for SageBot PC (${cleanRoom})... Ensure SageBot is running on your PC with Mobile Remote open.`
+          `Waiting for pairing approval on SageBot PC (${cleanRoom})... Look for the prompt on your PC.`
         );
       }
-    }, 8000);
+    }, 4500);
   };
 
   const sendAction = (action: string, payload?: any) => {
@@ -274,6 +410,7 @@ export function App() {
     connectedRef.current = false;
     setIsConnected(false);
     setIsConnecting(false);
+    setIsPendingApproval(false);
     setConnectionError('');
     setStatus(null);
     setRoster(null);
@@ -281,6 +418,7 @@ export function App() {
     setScreenshotUrl(null);
     setLogs([]);
     localStorage.removeItem('sagebot_room_code');
+    localStorage.removeItem('sagebot_secret_token');
     setRoomCode('');
   };
 
@@ -303,18 +441,18 @@ export function App() {
       setHasNotifPermission(perm === 'granted');
       if (perm === 'granted') {
         showToast('Push notifications enabled!');
-        triggerNativeNotification('SageBot v4.0', 'Notifications active on your device.', 'setup');
+        triggerNativeNotification('Notifications active on your device.', 'setup');
       } else {
         showToast('Notification permission blocked.');
       }
     }
   };
 
-  // State badge styling
+  // State badge styling (concise: INGAME, AGENT SELECT, IN QUEUE, IN LOBBY, OFFLINE)
   const getStateBadge = (st: string) => {
     switch (st) {
       case 'In Game':
-        return { label: 'LIVE IN GAME', color: '#10b981', bg: 'rgba(16, 185, 129, 0.15)' };
+        return { label: 'INGAME', color: '#10b981', bg: 'rgba(16, 185, 129, 0.15)' };
       case 'Agent Select':
         return { label: 'AGENT SELECT', color: '#38bdf8', bg: 'rgba(56, 189, 248, 0.15)' };
       case 'In Queue':
@@ -328,13 +466,10 @@ export function App() {
 
   const badge = getStateBadge(status?.match_state || 'OFFLINE');
 
-  const formatCountdown = (secs?: number) => {
-    if (!secs || secs <= 0) return '00:00:00';
-    const h = Math.floor(secs / 3600);
-    const m = Math.floor((secs % 3600) / 60);
-    const s = Math.floor(secs % 60);
-    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  };
+  // Defensive arrays to avoid any blank-screen rendering crashes
+  const allyTeam = Array.isArray(roster?.ally_team) ? roster.ally_team : [];
+  const enemyTeam = Array.isArray(roster?.enemy_team) ? roster.enemy_team : [];
+  const hasRosterPlayers = allyTeam.length > 0 || enemyTeam.length > 0;
 
   return (
     <div className="mobile-shell">
@@ -345,7 +480,7 @@ export function App() {
             <Bell size={18} color="#38bdf8" />
           </div>
           <div className="push-text">
-            <span className="push-title">{incomingNotification.title}</span>
+            <span className="push-title">SageBot</span>
             <span className="push-body">{incomingNotification.message}</span>
           </div>
           <button
@@ -395,31 +530,57 @@ export function App() {
         </div>
       )}
 
-      {/* TOP HEADER BAR: CLEAN SAGEBOT TITLE & STATUS PILL */}
+      {/* TOP HEADER BAR: CHIBI SAGEBOT & CURRENCIES (VP, RP, KC, AGENT TOKENS) */}
       <header className="mobile-header">
         <div className="header-brand-clean">
-          <div className="brand-logo-circle">
-            <Shield size={18} color="#38bdf8" />
-          </div>
+          <img src="/sage.ico" alt="SageBot" className="brand-chibi-logo" />
           <span className="clean-app-title">SageBot</span>
         </div>
 
-        <div className="header-status-slot">
-          {isConnected ? (
-            <span className="conn-badge online">
-              <span className="dot green"></span>
-              Online
-            </span>
-          ) : isConnecting ? (
-            <span className="conn-badge connecting">
-              <span className="dot amber"></span>
-              Connecting
-            </span>
+        {/* Currency badges with official VALORANT API icons */}
+        <div className="header-currencies-row">
+          {status?.wallet ? (
+            <>
+              <div className="header-currency-chip" title="VALORANT Points">
+                <img
+                  src="https://media.valorant-api.com/currencies/85ad13f7-3d1b-5128-9eb2-7cd8ee0b5741/displayicon.png"
+                  alt="VP"
+                  className="header-currency-icon"
+                />
+                <span className="header-currency-val tabular-nums">{status.wallet.vp.toLocaleString()}</span>
+              </div>
+              <div className="header-currency-chip" title="Radianite Points">
+                <img
+                  src="https://media.valorant-api.com/currencies/e59aa87c-4cbf-517a-5983-6e81511be9b7/displayicon.png"
+                  alt="RP"
+                  className="header-currency-icon"
+                />
+                <span className="header-currency-val tabular-nums">{status.wallet.rp.toLocaleString()}</span>
+              </div>
+              <div className="header-currency-chip" title="Kingdom Credits">
+                <img
+                  src="https://media.valorant-api.com/currencies/85ca954a-41f2-ce94-9b45-8ca3dd39a00d/displayicon.png"
+                  alt="KC"
+                  className="header-currency-icon"
+                />
+                <span className="header-currency-val tabular-nums">{status.wallet.kc.toLocaleString()}</span>
+              </div>
+              {typeof status.wallet.agent_tokens === 'number' && (
+                <div className="header-currency-chip" title="Free Agent Tokens">
+                  <img
+                    src="https://media.valorant-api.com/currencies/f08d4ae3-939c-4576-ab26-09ce1f23bb37/displayicon.png"
+                    alt="Tokens"
+                    className="header-currency-icon"
+                  />
+                  <span className="header-currency-val tabular-nums">{status.wallet.agent_tokens.toLocaleString()}</span>
+                </div>
+              )}
+            </>
           ) : (
-            <span className="conn-badge offline">
-              <span className="dot red"></span>
-              Offline
-            </span>
+            <div className="header-status-pill-subtle">
+              <span className={`status-micro-dot ${isConnected ? 'green' : 'amber'}`}></span>
+              <span className="status-micro-text">{isConnected ? 'v4.0' : 'Connecting'}</span>
+            </div>
           )}
         </div>
       </header>
@@ -429,20 +590,20 @@ export function App() {
         <main className="mobile-body pairing-body">
           <div className="sleek-pairing-card">
             <div className="pairing-hero-icon">
-              <Shield size={32} color="#38bdf8" />
+              <img src="/sage.ico" alt="SageBot" className="pairing-chibi-logo" />
             </div>
 
             <h2 className="pairing-main-title">Pair with SageBot PC</h2>
             <p className="pairing-main-desc">
-              Enter the 6-digit room code from your PC’s <strong>Mobile Remote</strong> tab.
+              Enter the 8-character code from your PC’s <strong>Mobile Remote</strong> tab.
             </p>
 
             <div className="code-input-container">
               <div className="input-with-paste">
                 <input
                   type="text"
-                  maxLength={6}
-                  placeholder="000000"
+                  maxLength={8}
+                  placeholder="XXXXXXXX"
                   value={pinInput}
                   onChange={(e) => setPinInput(e.target.value.toUpperCase())}
                   className="sleek-pin-input tabular-nums"
@@ -465,11 +626,27 @@ export function App() {
                 disabled={isConnecting || pinInput.trim().length < 4}
                 onClick={() => connectToPC(pinInput)}
               >
-                {isConnecting ? 'Connecting to PC...' : 'Connect to PC'}
+                {isConnecting ? (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <RefreshCw size={15} className="spin" /> Connecting...
+                  </span>
+                ) : (
+                  'Connect to PC'
+                )}
               </button>
             </div>
 
-            {connectionError && (
+            {isPendingApproval && (
+              <div className="pending-approval-banner">
+                <Radio size={16} className="pulse-icon" />
+                <div className="pending-approval-text">
+                  <strong>Approval Required on PC</strong>
+                  <span>Please check SageBot on your PC and click Approve to pair this device.</span>
+                </div>
+              </div>
+            )}
+
+            {connectionError && !isPendingApproval && (
               <div className="sleek-error-callout" role="alert">
                 <AlertTriangle size={15} />
                 <span>{connectionError}</span>
@@ -486,7 +663,7 @@ export function App() {
       {/* CONNECTED MAIN VIEW */}
       {isConnected && (
         <main className="mobile-body">
-          {/* TAB 1: STATUS (LIVE INGAME, SCREENSHOT, MINIMAL LOGS) */}
+          {/* TAB 1: STATUS (INGAME, SCREENSHOT, MINIMAL LOGS) */}
           {activeTab === 'status' && (
             <div className="tab-pane">
               {/* PRIMARY LIVE MATCH CARD */}
@@ -539,10 +716,8 @@ export function App() {
                     <span className="stat-val">{status?.rank_name || 'Unranked'}</span>
                   </div>
                   <div className="stat-pill">
-                    <span className="stat-label">BOT</span>
-                    <span className={`stat-val ${botRunning ? 'online' : 'offline'}`}>
-                      {botRunning ? 'ACTIVE' : 'STOPPED'}
-                    </span>
+                    <span className="stat-label">SERVER</span>
+                    <span className="stat-val">{roster?.server_name || status?.server_name || '-'}</span>
                   </div>
                 </div>
 
@@ -612,7 +787,7 @@ export function App() {
             </div>
           )}
 
-          {/* TAB 2: TRACKER (FULL VERIFIED ROSTER FROM PC) */}
+          {/* TAB 2: TRACKER (FULL VERIFIED ROSTER FROM PC - SAFE GUARDED) */}
           {activeTab === 'tracker' && (
             <div className="tab-pane">
               <div className="surface-card">
@@ -632,7 +807,7 @@ export function App() {
                   </button>
                 </div>
 
-                {!roster || (roster.ally_team.length === 0 && roster.enemy_team.length === 0) ? (
+                {!hasRosterPlayers ? (
                   <div className="empty-sub-state">
                     <Users size={36} color="#64748b" />
                     <p>No active match roster detected.</p>
@@ -641,55 +816,57 @@ export function App() {
                 ) : (
                   <div className="teams-scroll-container">
                     {/* ALLY TEAM */}
-                    <div className="team-block ally-team">
-                      <span className="team-block-title ally">ALLY TEAM</span>
-                      <div className="players-list">
-                        {roster.ally_team.map((player: TrackedPlayer) => (
-                          <div key={player.puuid || player.name} className="roster-player-card ally">
-                            <div className="player-agent-col">
-                              {player.agent_id ? (
-                                <img
-                                  src={`https://media.valorant-api.com/agents/${player.agent_id}/displayicon.png`}
-                                  alt={player.agent_name}
-                                  className="player-agent-icon"
-                                  onError={(e) => {
-                                    (e.currentTarget as HTMLImageElement).style.display = 'none';
-                                  }}
-                                />
-                              ) : (
-                                <div className="agent-fallback-avatar">
-                                  <span>{player.agent_name.slice(0, 2)}</span>
+                    {allyTeam.length > 0 && (
+                      <div className="team-block ally-team">
+                        <span className="team-block-title ally">ALLY TEAM</span>
+                        <div className="players-list">
+                          {allyTeam.map((player: TrackedPlayer) => (
+                            <div key={player.puuid || player.name} className="roster-player-card ally">
+                              <div className="player-agent-col">
+                                {player.agent_id ? (
+                                  <img
+                                    src={`https://media.valorant-api.com/agents/${player.agent_id}/displayicon.png`}
+                                    alt={player.agent_name}
+                                    className="player-agent-icon"
+                                    onError={(e) => {
+                                      (e.currentTarget as HTMLImageElement).style.display = 'none';
+                                    }}
+                                  />
+                                ) : (
+                                  <div className="agent-fallback-avatar">
+                                    <span>{player.agent_name?.slice(0, 2) || 'VA'}</span>
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="player-info-col">
+                                <div className="player-name-row">
+                                  <span className="player-display-name">{player.name}</span>
+                                  {player.is_self && <span className="self-tag">YOU</span>}
+                                  {player.party_tag && <span className="party-tag">{player.party_tag}</span>}
                                 </div>
-                              )}
-                            </div>
-
-                            <div className="player-info-col">
-                              <div className="player-name-row">
-                                <span className="player-display-name">{player.name}</span>
-                                {player.is_self && <span className="self-tag">YOU</span>}
-                                {player.party_tag && <span className="party-tag">{player.party_tag}</span>}
+                                <span className="player-agent-name">{player.agent_name || 'Agent'}</span>
                               </div>
-                              <span className="player-agent-name">{player.agent_name || 'Agent'}</span>
-                            </div>
 
-                            <div className="player-stats-col">
-                              <span className="player-rank-title">{player.current_rank_name || 'Unranked'}</span>
-                              <div className="stats-sub-row tabular-nums">
-                                <span className="player-wr">{player.win_rate ? `${Math.round(player.win_rate)}%` : '-'}</span>
-                                {player.kd_ratio && <span className="player-kd">{player.kd_ratio.toFixed(2)} KD</span>}
+                              <div className="player-stats-col">
+                                <span className="player-rank-title">{player.current_rank_name || 'Unranked'}</span>
+                                <div className="stats-sub-row tabular-nums">
+                                  <span className="player-wr">{player.win_rate ? `${Math.round(player.win_rate)}%` : '-'}</span>
+                                  {player.kd_ratio && <span className="player-kd">{player.kd_ratio.toFixed(2)} KD</span>}
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        ))}
+                          ))}
+                        </div>
                       </div>
-                    </div>
+                    )}
 
                     {/* ENEMY TEAM */}
-                    {roster.enemy_team.length > 0 && (
+                    {enemyTeam.length > 0 && (
                       <div className="team-block enemy-team" style={{ marginTop: '16px' }}>
                         <span className="team-block-title enemy">ENEMY TEAM</span>
                         <div className="players-list">
-                          {roster.enemy_team.map((player: TrackedPlayer) => (
+                          {enemyTeam.map((player: TrackedPlayer) => (
                             <div key={player.puuid || player.name} className="roster-player-card enemy">
                               <div className="player-agent-col">
                                 {player.agent_id ? (
@@ -703,7 +880,7 @@ export function App() {
                                   />
                                 ) : (
                                   <div className="agent-fallback-avatar">
-                                    <span>{player.agent_name.slice(0, 2)}</span>
+                                    <span>{player.agent_name?.slice(0, 2) || 'VA'}</span>
                                   </div>
                                 )}
                               </div>
@@ -734,40 +911,18 @@ export function App() {
             </div>
           )}
 
-          {/* TAB 3: SHOP (FULL CONTENT: WALLET, FEATURED BUNDLE, DAILY OFFERS, NIGHT MARKET, ACCESSORY) */}
+          {/* TAB 3: SHOP (FEATURED BUNDLE, DAILY OFFERS, NIGHT MARKET, ACCESSORY) */}
           {activeTab === 'shop' && (
             <div className="tab-pane">
-              {/* WALLET BAR */}
-              <div className="wallet-strip">
-                <div className="wallet-chip">
-                  <Coins size={14} color="#f59e0b" />
-                  <span className="wallet-label">VP</span>
-                  <span className="wallet-val tabular-nums">{status?.wallet?.vp?.toLocaleString() ?? '-'}</span>
-                </div>
-                <div className="wallet-chip">
-                  <Coins size={14} color="#a855f7" />
-                  <span className="wallet-label">RP</span>
-                  <span className="wallet-val tabular-nums">{status?.wallet?.rp?.toLocaleString() ?? '-'}</span>
-                </div>
-                <div className="wallet-chip">
-                  <Coins size={14} color="#38bdf8" />
-                  <span className="wallet-label">KC</span>
-                  <span className="wallet-val tabular-nums">{status?.wallet?.kc?.toLocaleString() ?? '-'}</span>
-                </div>
-              </div>
-
-              {/* SHOP CONTENT CONTAINER */}
               <div className="surface-card">
                 <div className="surface-card-header">
                   <div>
                     <h3 className="card-heading">Shop</h3>
-                    {storefront?.daily_seconds_remaining ? (
-                      <span className="shop-countdown tabular-nums">
-                        Resets in {formatCountdown(storefront.daily_seconds_remaining)}
-                      </span>
-                    ) : (
-                      <span className="card-subheading">Storefront</span>
-                    )}
+                    <span className="card-subheading">
+                      {dailySeconds > 0
+                        ? `Daily offers reset in ${formatCountdownDHMS(dailySeconds)}`
+                        : 'Storefront'}
+                    </span>
                   </div>
                   <button
                     className="icon-refresh-btn"
@@ -805,7 +960,7 @@ export function App() {
                               <span className="bundle-name">{bundle.name}</span>
                               <div className="bundle-price-row">
                                 <span className="time-left tabular-nums">
-                                  <Clock size={12} /> {formatCountdown(bundle.seconds_remaining)}
+                                  <Clock size={12} /> {formatCountdownDHMS(bundle.seconds_remaining)}
                                 </span>
                                 <span className="price-vp-pill tabular-nums">
                                   {bundle.total_cost_vp.toLocaleString()} VP
@@ -820,7 +975,14 @@ export function App() {
                     {/* DAILY 4 WEAPON SKINS */}
                     {storefront.daily_offers && storefront.daily_offers.length > 0 && (
                       <div className="daily-offers-block" style={{ marginTop: '16px' }}>
-                        <span className="shop-subheading">DAILY OFFERS</span>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                          <span className="shop-subheading">DAILY OFFERS</span>
+                          {dailySeconds > 0 && (
+                            <span style={{ fontSize: '11px', color: '#94a3b8', fontFamily: 'monospace' }}>
+                              ⏱ {formatCountdownDHMS(dailySeconds)}
+                            </span>
+                          )}
+                        </div>
                         <div className="daily-skins-grid">
                           {storefront.daily_offers.map((offer) => (
                             <div key={offer.offer_id} className="daily-skin-tile">
@@ -850,7 +1012,7 @@ export function App() {
                         <div className="nm-header-row">
                           <span className="shop-subheading purple">NIGHT.MARKET</span>
                           <span className="nm-countdown tabular-nums">
-                            {formatCountdown(storefront.night_market_seconds_remaining)}
+                            {formatCountdownDHMS(storefront.night_market_seconds_remaining)}
                           </span>
                         </div>
 
@@ -881,14 +1043,14 @@ export function App() {
             </div>
           )}
 
-          {/* TAB 4: SETTINGS (VERSION, NOTIFICATIONS, KILL VALORANT, LOGOUT) */}
+          {/* TAB 4: SETTINGS (VERSION, NOTIFICATIONS PREFERENCES, KILL VALORANT, LOGOUT) */}
           {activeTab === 'settings' && (
             <div className="tab-pane">
               {/* VERSION CARD */}
               <div className="surface-card version-card">
                 <div className="version-info-row">
                   <div className="version-brand">
-                    <Shield size={22} color="#38bdf8" />
+                    <img src="/sage.ico" alt="SageBot" className="brand-chibi-logo" />
                     <div>
                       <h3 className="version-title">SageBot</h3>
                       <span className="version-badge">v4.0</span>
@@ -901,28 +1063,70 @@ export function App() {
                 </p>
               </div>
 
-              {/* NOTIFICATION STATUS CARD */}
+              {/* NOTIFICATION PREFERENCES CARD */}
               <div className="surface-card">
-                <div className="setting-action-row">
-                  <div className="setting-meta">
-                    <span className="setting-name">Phone Push Notifications</span>
-                    <span className="setting-desc">
-                      {hasNotifPermission
-                        ? 'Active — alerts will ring on match start & disconnect.'
-                        : 'Enable to receive lockscreen alerts on iOS & Android.'}
-                    </span>
+                <div className="surface-card-header">
+                  <div className="header-left-title">
+                    <Bell size={16} color="#38bdf8" />
+                    <span className="card-heading">Phone Notifications</span>
                   </div>
                   {!hasNotifPermission && (
                     <button className="enable-notif-btn" onClick={requestNotificationPermission}>
-                      <Bell size={14} />
-                      <span>Enable</span>
+                      <span>Enable System Push</span>
                     </button>
                   )}
                   {hasNotifPermission && (
                     <span className="notif-active-badge">
-                      <Check size={14} /> Active
+                      <Check size={13} /> Permission Granted
                     </span>
                   )}
+                </div>
+
+                <div className="notif-toggles-list">
+                  <div className="notif-toggle-row">
+                    <div className="notif-text-col">
+                      <span className="notif-opt-title">Disconnect &amp; Reconnect Alerts</span>
+                      <span className="notif-opt-sub">Alert when SageBot or VALORANT disconnects</span>
+                    </div>
+                    <label className="switch-label">
+                      <input
+                        type="checkbox"
+                        checked={notifPrefs.disconnect}
+                        onChange={(e) => updateNotifPref('disconnect', e.target.checked)}
+                      />
+                      <span className="switch-slider"></span>
+                    </label>
+                  </div>
+
+                  <div className="notif-toggle-row">
+                    <div className="notif-text-col">
+                      <span className="notif-opt-title">Match State Alerts</span>
+                      <span className="notif-opt-sub">Alert on Queue pop, Agent Select, and In-Game</span>
+                    </div>
+                    <label className="switch-label">
+                      <input
+                        type="checkbox"
+                        checked={notifPrefs.status}
+                        onChange={(e) => updateNotifPref('status', e.target.checked)}
+                      />
+                      <span className="switch-slider"></span>
+                    </label>
+                  </div>
+
+                  <div className="notif-toggle-row">
+                    <div className="notif-text-col">
+                      <span className="notif-opt-title">Rank &amp; RR Updates</span>
+                      <span className="notif-opt-sub">Alert when competitive rank or RR updates</span>
+                    </div>
+                    <label className="switch-label">
+                      <input
+                        type="checkbox"
+                        checked={notifPrefs.rank}
+                        onChange={(e) => updateNotifPref('rank', e.target.checked)}
+                      />
+                      <span className="switch-slider"></span>
+                    </label>
+                  </div>
                 </div>
               </div>
 

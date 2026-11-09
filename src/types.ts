@@ -9,12 +9,14 @@ export interface MobileClientStatus {
   score_enemy: number;
   player_name?: string;
   player_tag?: string;
+  server_name?: string;
   rank_name: string;
   rank_tier: number;
   wallet?: {
     vp: number;
     rp: number;
     kc: number;
+    agent_tokens?: number;
   };
 }
 
@@ -101,16 +103,22 @@ export interface RemoteNotification {
 
 export interface RemoteMessage {
   type:
-    | "sync"
-    | "status"
-    | "roster"
-    | "screenshot"
-    | "log"
-    | "toast"
-    | "action_ack"
-    | "storefront"
-    | "notification";
+  | "sync"
+  | "status"
+  | "roster"
+  | "screenshot"
+  | "log"
+  | "toast"
+  | "action_ack"
+  | "storefront"
+  | "notification"
+  | "pair_approved"
+  | "pair_denied"
+  | "force_logout";
   payload?: any;
+  token?: string;
+  client_id?: string;
+  device_name?: string;
   status?: MobileClientStatus;
   bot_running?: boolean;
   roster?: LiveMatchRoster;

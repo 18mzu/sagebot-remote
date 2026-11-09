@@ -89,6 +89,89 @@ body {
   justify-content: center;
 }
 
+.brand-chibi-logo {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+}
+
+.pairing-chibi-logo {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.4));
+}
+
+/* TOP HEADER CURRENCIES */
+.header-currencies-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow-x: auto;
+  max-width: 65%;
+  scrollbar-width: none;
+}
+
+.header-currencies-row::-webkit-scrollbar {
+  display: none;
+}
+
+.header-currency-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 3px 7px;
+  border-radius: 7px;
+  flex-shrink: 0;
+}
+
+.header-currency-icon {
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
+}
+
+.header-currency-val {
+  font-size: 11px;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.header-status-pill-subtle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+}
+
+.status-micro-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.status-micro-dot.green {
+  background: #10b981;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
+}
+
+.status-micro-dot.amber {
+  background: #f59e0b;
+  box-shadow: 0 0 6px rgba(245, 158, 11, 0.6);
+}
+
+.status-micro-text {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #94a3b8;
+}
+
 .clean-app-title {
   font-size: 17px;
   font-weight: 800;
@@ -172,6 +255,7 @@ body {
     opacity: 0;
     transform: translateY(-20px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -456,6 +540,48 @@ body {
   transform: scale(0.98);
 }
 
+.pending-approval-banner {
+  margin-top: 14px;
+  padding: 12px 14px;
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 10px;
+  color: #e0f2fe;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+}
+
+.pulse-icon {
+  color: #38bdf8;
+  animation: pulse-ring 1.6s cubic-bezier(0.24, 0, 0.38, 1) infinite;
+  flex-shrink: 0;
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(0.95); opacity: 0.8; }
+  50% { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(0.95); opacity: 0.8; }
+}
+
+.pending-approval-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pending-approval-text strong {
+  font-size: 13px;
+  color: #38bdf8;
+}
+
+.pending-approval-text span {
+  font-size: 11.5px;
+  color: #cbd5e1;
+  line-height: 1.35;
+}
+
 .sleek-error-callout {
   margin-top: 14px;
   padding: 10px 12px;
@@ -708,8 +834,13 @@ body {
 }
 
 @keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .screenshot-img-card {
@@ -1274,6 +1405,88 @@ body {
   padding: 4px 8px;
   border-radius: 6px;
   white-space: nowrap;
+}
+
+/* NOTIFICATION PREFERENCE TOGGLES */
+.notif-toggles-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.notif-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.notif-text-col {
+  display: flex;
+  flex-direction: column;
+}
+
+.notif-opt-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.notif-opt-sub {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+
+/* MODERN TOGGLE SWITCH */
+.switch-label {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.switch-label input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.switch-slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background-color: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 24px;
+}
+
+.switch-slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 2px;
+  bottom: 2px;
+  background-color: #ffffff;
+  transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.switch-label input:checked + .switch-slider {
+  background-color: var(--accent-cyan);
+  border-color: var(--accent-cyan);
+}
+
+.switch-label input:checked + .switch-slider:before {
+  transform: translateX(20px);
 }
 
 /* DANGER ZONE */
