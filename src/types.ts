@@ -18,19 +18,31 @@ export interface MobileClientStatus {
   };
 }
 
-export interface PlayerRosterItem {
+export interface TrackedPlayer {
   puuid: string;
-  game_name: string;
-  tag_line: string;
+  name: string;
   team: string; // "Blue" | "Red"
-  agent_name: string;
   agent_id: string;
+  agent_name: string;
+  level: number;
   current_rank_name: string;
   current_rr: number;
-  win_rate: string;
-  games_count: number;
-  is_party: boolean;
-  party_color?: string;
+  peak_rank_name: string;
+  win_rate: number;
+  total_games: number;
+  party_tag?: string;
+  is_self?: boolean;
+  kd_ratio?: number;
+}
+
+export interface LiveMatchRoster {
+  state: string; // "COREGAME" | "PREGAME" | "CONCLUDED" | "NO_MATCH"
+  match_id: string;
+  map_name: string;
+  gamemode: string;
+  server_name?: string;
+  ally_team: TrackedPlayer[];
+  enemy_team: TrackedPlayer[];
 }
 
 export interface StoreDailyOffer {
@@ -39,6 +51,14 @@ export interface StoreDailyOffer {
   weapon_name: string;
   icon_url: string;
   cost_vp: number;
+}
+
+export interface StoreFeaturedBundle {
+  bundle_id: string;
+  name: string;
+  display_icon: string;
+  total_cost_vp: number;
+  seconds_remaining: number;
 }
 
 export interface StoreNightMarketOffer {
@@ -52,43 +72,24 @@ export interface StoreNightMarketOffer {
   is_seen: boolean;
 }
 
+export interface StoreAccessoryOffer {
+  offer_id: string;
+  item_id: string;
+  name: string;
+  item_type: string;
+  icon_url: string;
+  cost_kc: number;
+}
+
 export interface StorefrontData {
   daily_offers: StoreDailyOffer[];
   daily_seconds_remaining: number;
+  featured_bundles: StoreFeaturedBundle[];
   night_market_active?: boolean;
   night_market_offers?: StoreNightMarketOffer[];
   night_market_seconds_remaining?: number;
-}
-
-export interface MobileBotConfig {
-  bot_running: boolean;
-  anti_afk_enabled: boolean;
-  auto_reconnect: boolean;
-  auto_ff_enabled: boolean;
-  auto_kj_turret: boolean;
-  auto_queue_enabled: boolean;
-  auto_queue_mode: string;
-  lock_random_agent: boolean;
-  low_detail: boolean;
-  // Agents sub-config
-  agents_enabled?: boolean;
-  instalock_enabled?: boolean;
-  lock_delay?: number;
-  starter_fallback_enabled?: boolean;
-  selected_agents?: string[];
-  // Chat sub-config
-  chat_enabled?: boolean;
-  chat_target?: number; // 0 = All, 1 = Team, 2 = Party
-  chat_interval?: number;
-  chat_text?: string;
-  // Voting sub-config
-  auto_ff_round_5?: boolean;
-  auto_ff_round_13?: boolean;
-  auto_ff_round_14?: boolean;
-  // Notifications
-  remote_notify_disconnect?: boolean;
-  remote_notify_status?: boolean;
-  remote_notify_rank_change?: boolean;
+  accessory_offers?: StoreAccessoryOffer[];
+  accessory_seconds_remaining?: number;
 }
 
 export interface RemoteNotification {
@@ -102,7 +103,6 @@ export interface RemoteMessage {
   type:
     | "sync"
     | "status"
-    | "config"
     | "roster"
     | "screenshot"
     | "log"
@@ -112,6 +112,8 @@ export interface RemoteMessage {
     | "notification";
   payload?: any;
   status?: MobileClientStatus;
-  config?: MobileBotConfig;
-  roster?: PlayerRosterItem[];
+  bot_running?: boolean;
+  roster?: LiveMatchRoster;
+  storefront?: StorefrontData;
+  logs?: string[];
 }

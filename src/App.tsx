@@ -1,49 +1,33 @@
 import { useState, useEffect, useRef } from 'react';
 import {
-  Menu,
-  X,
   Shield,
-  Sliders,
+  Activity,
   Users,
   ShoppingBag,
-  Activity,
+  Settings,
   Power,
   Camera,
   AlertTriangle,
-  Play,
-  Flame,
-  RotateCcw,
-  Sparkles,
   RefreshCw,
-  Radio,
   LogOut,
   Skull,
-  MessageSquare,
-  Vote,
-  Crosshair,
   Bell,
   Coins,
-  ChevronRight,
+  Clock,
+  Terminal,
+  ClipboardPaste,
+  Check,
 } from 'lucide-react';
 import { RemoteBridge } from './remoteBridge';
 import type {
   MobileClientStatus,
-  MobileBotConfig,
-  PlayerRosterItem,
-  RemoteMessage,
+  LiveMatchRoster,
+  TrackedPlayer,
   StorefrontData,
   RemoteNotification,
+  RemoteMessage,
 } from './types';
 import './App.css';
-
-// Valorant Agent Directory
-const VALORANT_AGENTS = [
-  'Astra', 'Breach', 'Brimstone', 'Chamber', 'Clove', 'Cypher',
-  'Deadlock', 'Fade', 'Gekko', 'Harbor', 'Iso', 'Jett',
-  'KAY/O', 'Killjoy', 'Neon', 'Omen', 'Phoenix', 'Raze',
-  'Reyna', 'Sage', 'Skye', 'Sova', 'Tejo', 'Viper',
-  'Vyse', 'Waylay', 'Yoru',
-];
 
 export function App() {
   const [roomCode, setRoomCode] = useState<string>(() => {
@@ -70,58 +54,25 @@ export function App() {
   const [isConnecting, setIsConnecting] = useState<boolean>(false);
   const [connectionError, setConnectionError] = useState<string>('');
 
-  // Primary Bottom Nav Tab: 'config' | 'tracker' | 'status'
-  const [activeTab, setActiveTab] = useState<'config' | 'tracker' | 'status'>('config');
+  // Exactly 4 primary footer tabs: 'status' | 'tracker' | 'shop' | 'settings'
+  const [activeTab, setActiveTab] = useState<'status' | 'tracker' | 'shop' | 'settings'>('status');
 
-  // Sub-tabs
-  const [configSubTab, setConfigSubTab] = useState<'automation' | 'agents' | 'chat' | 'voting'>('automation');
-  const [trackerSubTab, setTrackerSubTab] = useState<'roster' | 'shop'>('roster');
-  const [statusSubTab, setStatusSubTab] = useState<'screenshot' | 'danger'>('screenshot');
-
-  // Drawer state
-  const [isDrawerOpen, setIsDrawerOpen] = useState<boolean>(false);
-
-  // Status & live data received from PC
+  // Status & live data verified from PC
   const [status, setStatus] = useState<MobileClientStatus | null>(null);
-  const [botConfig, setBotConfig] = useState<MobileBotConfig>({
-    bot_running: false,
-    anti_afk_enabled: true,
-    auto_reconnect: false,
-    auto_ff_enabled: false,
-    auto_kj_turret: false,
-    auto_queue_enabled: false,
-    auto_queue_mode: 'competitive',
-    lock_random_agent: false,
-    low_detail: false,
-    agents_enabled: true,
-    instalock_enabled: false,
-    lock_delay: 20,
-    starter_fallback_enabled: false,
-    selected_agents: ['Jett'],
-    chat_enabled: false,
-    chat_target: 0,
-    chat_interval: 180,
-    chat_text: 'With great Power comes great Responsibility',
-    auto_ff_round_5: true,
-    auto_ff_round_13: false,
-    auto_ff_round_14: false,
-    remote_notify_disconnect: true,
-    remote_notify_status: true,
-    remote_notify_rank_change: true,
-  });
-
-  const [roster, setRoster] = useState<PlayerRosterItem[]>([]);
+  const [botRunning, setBotRunning] = useState<boolean>(false);
+  const [roster, setRoster] = useState<LiveMatchRoster | null>(null);
   const [storefront, setStorefront] = useState<StorefrontData | null>(null);
+  const [logs, setLogs] = useState<string[]>([]);
   const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
   const [isCapturingScreenshot, setIsCapturingScreenshot] = useState<boolean>(false);
+
+  // Notifications & Modals
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [incomingNotification, setIncomingNotification] = useState<RemoteNotification | null>(null);
-
-  // Confirmation modal for Kill VALORANT
   const [showKillConfirm, setShowKillConfirm] = useState<boolean>(false);
-
-  // Search filter for agent picker
-  const [agentSearch, setAgentSearch] = useState<string>('');
+  const [hasNotifPermission, setHasNotifPermission] = useState<boolean>(() => {
+    return typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted';
+  });
 
   const bridgeRef = useRef<RemoteBridge | null>(null);
   const connectedRef = useRef<boolean>(false);
@@ -143,34 +94,44 @@ export function App() {
     setToastMessage(msg);
     setTimeout(() => {
       setToastMessage(null);
-    }, 3200);
+    }, 2800);
   };
 
-  // Dispatch Web Notification if permitted + vibrate
-  const handleIncomingNotification = (notif: RemoteNotification) => {
-    setIncomingNotification(notif);
-
-    // Vibration feedback on supported devices
-    if ('vibrate' in navigator) {
+  // Trigger Native OS push notification (iOS Home Screen PWA & Android)
+  const triggerNativeNotification = (title: string, body: string, tag: string) => {
+    // 1. Send to Service Worker for background system lockscreen notification
+    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.controller.postMessage({
+        type: 'SHOW_NOTIFICATION',
+        title,
+        body,
+        tag,
+      });
+    } else if ('Notification' in window && Notification.permission === 'granted') {
       try {
-        navigator.vibrate([120, 60, 120]);
-      } catch {
-        // ignore
-      }
-    }
-
-    // Web Notification API (shows banner on device lockscreen / notification center)
-    if ('Notification' in window && Notification.permission === 'granted') {
-      try {
-        new Notification(notif.title, {
-          body: notif.message,
-          icon: '/favicon.ico',
-          tag: notif.eventType,
+        new Notification(title, {
+          body,
+          icon: '/icon-192.png',
+          tag,
         });
       } catch {
         // ignore
       }
     }
+
+    // 2. Mobile vibration feedback
+    if ('vibrate' in navigator) {
+      try {
+        navigator.vibrate([150, 80, 150]);
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  const handleIncomingNotification = (notif: RemoteNotification) => {
+    setIncomingNotification(notif);
+    triggerNativeNotification(notif.title, notif.message, notif.eventType);
 
     setTimeout(() => {
       setIncomingNotification((prev) => (prev?.timestamp === notif.timestamp ? null : prev));
@@ -181,13 +142,15 @@ export function App() {
   const connectToPC = (targetRoom: string) => {
     const cleanRoom = targetRoom.trim().toUpperCase();
     if (!cleanRoom || cleanRoom.length < 4) {
-      setConnectionError('Please enter a valid 6-digit room code');
+      setConnectionError('Please enter your 6-digit room code');
       return;
     }
 
-    // Request notification permission smoothly
+    // Request notification permission smoothly upon connection
     if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission().catch(() => {});
+      Notification.requestPermission().then((perm) => {
+        setHasNotifPermission(perm === 'granted');
+      }).catch(() => {});
     }
 
     setRoomCode(cleanRoom);
@@ -230,20 +193,24 @@ export function App() {
         switch (msg.type) {
           case 'sync':
             if (msg.status) setStatus(msg.status);
-            if (msg.config) setBotConfig((prev) => ({ ...prev, ...msg.config }));
+            if (typeof msg.bot_running === 'boolean') setBotRunning(msg.bot_running);
             if (msg.roster) setRoster(msg.roster);
+            if (msg.storefront) setStorefront(msg.storefront);
+            if (msg.logs) setLogs(msg.logs);
             break;
           case 'status':
             setStatus(msg.payload);
             break;
-          case 'config':
-            setBotConfig((prev) => ({ ...prev, ...msg.payload }));
-            break;
           case 'roster':
-            setRoster(msg.payload || []);
+            setRoster(msg.payload || null);
             break;
           case 'storefront':
             setStorefront(msg.payload || null);
+            break;
+          case 'log':
+            if (typeof msg.payload === 'string') {
+              setLogs((prev) => [...prev.slice(-9), msg.payload]);
+            }
             break;
           case 'screenshot':
             setScreenshotUrl(msg.payload);
@@ -268,13 +235,12 @@ export function App() {
       if (!connectedRef.current) {
         setIsConnecting(false);
         setConnectionError(
-          `Waiting for SageBot PC (${cleanRoom})... Ensure SageBot is running on your PC with Mobile Remote enabled.`
+          `Waiting for SageBot PC (${cleanRoom})... Ensure SageBot is running on your PC with Mobile Remote open.`
         );
       }
     }, 8000);
   };
 
-  // Send action packet to PC
   const sendAction = (action: string, payload?: any) => {
     if (!bridgeRef.current || !isConnected) {
       showToast('Not connected to PC');
@@ -285,12 +251,6 @@ export function App() {
       action,
       payload,
     });
-  };
-
-  // Send config update to PC
-  const updateConfig = (patch: Partial<MobileBotConfig>) => {
-    setBotConfig((prev) => ({ ...prev, ...patch }));
-    sendAction('update_config', patch);
   };
 
   useEffect(() => {
@@ -316,15 +276,41 @@ export function App() {
     setIsConnecting(false);
     setConnectionError('');
     setStatus(null);
+    setRoster(null);
     setStorefront(null);
-    setRoster([]);
     setScreenshotUrl(null);
+    setLogs([]);
     localStorage.removeItem('sagebot_room_code');
     setRoomCode('');
-    setIsDrawerOpen(false);
   };
 
-  // Map state badge
+  const handlePasteClipboard = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      const clean = text.trim().toUpperCase();
+      if (clean) {
+        setPinInput(clean);
+        showToast('Code pasted');
+      }
+    } catch {
+      showToast('Clipboard access denied');
+    }
+  };
+
+  const requestNotificationPermission = async () => {
+    if ('Notification' in window) {
+      const perm = await Notification.requestPermission();
+      setHasNotifPermission(perm === 'granted');
+      if (perm === 'granted') {
+        showToast('Push notifications enabled!');
+        triggerNativeNotification('SageBot v4.0', 'Notifications active on your device.', 'setup');
+      } else {
+        showToast('Notification permission blocked.');
+      }
+    }
+  };
+
+  // State badge styling
   const getStateBadge = (st: string) => {
     switch (st) {
       case 'In Game':
@@ -342,7 +328,6 @@ export function App() {
 
   const badge = getStateBadge(status?.match_state || 'OFFLINE');
 
-  // Format seconds to HH:MM:SS
   const formatCountdown = (secs?: number) => {
     if (!secs || secs <= 0) return '00:00:00';
     const h = Math.floor(secs / 3600);
@@ -351,11 +336,9 @@ export function App() {
     return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  const selectedAgentName = botConfig.selected_agents?.[0] || 'Jett';
-
   return (
     <div className="mobile-shell">
-      {/* PUSH NOTIFICATION BANNER (FLOAT ON TOP) */}
+      {/* PUSH NOTIFICATION BANNER */}
       {incomingNotification && (
         <aside className="mobile-push-notification" role="status" aria-live="polite">
           <div className="push-icon-circle">
@@ -370,7 +353,7 @@ export function App() {
             onClick={() => setIncomingNotification(null)}
             aria-label="Dismiss notification"
           >
-            <X size={15} />
+            ×
           </button>
         </aside>
       )}
@@ -378,21 +361,20 @@ export function App() {
       {/* QUICK TOAST MESSAGE */}
       {toastMessage && (
         <div className="mobile-toast" role="status" aria-live="polite">
-          <Sparkles size={15} className="toast-icon" />
           <span>{toastMessage}</span>
         </div>
       )}
 
-      {/* KILL VALORANT CONFIRMATION MODAL */}
+      {/* KILL VALORANT MODAL */}
       {showKillConfirm && (
         <div className="modal-backdrop" onClick={() => setShowKillConfirm(false)}>
           <div className="danger-modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="danger-modal-icon">
-              <Skull size={32} color="#ef4444" />
+              <Skull size={30} color="#ef4444" />
             </div>
             <h3 className="danger-modal-title">Terminate VALORANT?</h3>
             <p className="danger-modal-desc">
-              This will immediately force-close VALORANT and Riot Client on your PC. Any unsaved in-game match will be exited.
+              Force terminates VALORANT and Riot Client immediately on your PC.
             </p>
             <div className="danger-modal-actions">
               <button className="modal-cancel-btn" onClick={() => setShowKillConfirm(false)}>
@@ -406,299 +388,136 @@ export function App() {
                   showToast('Terminating VALORANT on PC...');
                 }}
               >
-                Force Kill
+                Kill VALORANT
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* TOP BAR: LEFT MENU BUTTON | RIGHT SAGEBOT TITLE & STATUS */}
+      {/* TOP HEADER BAR: CLEAN SAGEBOT TITLE & STATUS PILL */}
       <header className="mobile-header">
-        <div className="header-left">
-          {isConnected && (
-            <button
-              className="menu-trigger-btn"
-              onClick={() => setIsDrawerOpen(true)}
-              aria-label="Open Navigation Drawer"
-            >
-              <Menu size={22} color="#f8fafc" />
-            </button>
+        <div className="header-brand-clean">
+          <div className="brand-logo-circle">
+            <Shield size={18} color="#38bdf8" />
+          </div>
+          <span className="clean-app-title">SageBot</span>
+        </div>
+
+        <div className="header-status-slot">
+          {isConnected ? (
+            <span className="conn-badge online">
+              <span className="dot green"></span>
+              Online
+            </span>
+          ) : isConnecting ? (
+            <span className="conn-badge connecting">
+              <span className="dot amber"></span>
+              Connecting
+            </span>
+          ) : (
+            <span className="conn-badge offline">
+              <span className="dot red"></span>
+              Offline
+            </span>
           )}
         </div>
-
-        <div className="header-right">
-          <div className="brand-stack">
-            <div className="brand-line">
-              <span className="app-title">SageBot</span>
-              <span className="remote-pill">REMOTE</span>
-            </div>
-            <div className="status-pill-small">
-              {isConnected ? (
-                <span className="conn-status online">
-                  <span className="status-dot green"></span>
-                  Connected • {roomCode.toUpperCase()}
-                </span>
-              ) : isConnecting ? (
-                <span className="conn-status connecting">
-                  <span className="status-dot amber"></span>
-                  Connecting...
-                </span>
-              ) : (
-                <span className="conn-status offline">
-                  <span className="status-dot red"></span>
-                  Offline
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
       </header>
-
-      {/* SLIDE-OUT LEFT DRAWER / SIDEBAR */}
-      {isConnected && (
-        <>
-          <div
-            className={`drawer-backdrop ${isDrawerOpen ? 'open' : ''}`}
-            onClick={() => setIsDrawerOpen(false)}
-          />
-          <aside className={`mobile-drawer ${isDrawerOpen ? 'open' : ''}`} aria-label="Main Navigation Drawer">
-            <div className="drawer-header">
-              <div className="drawer-brand">
-                <div className="app-icon-circle small">
-                  <Shield size={16} color="#38bdf8" />
-                </div>
-                <div className="drawer-title-group">
-                  <span className="drawer-title">SageBot Menu</span>
-                  <span className="drawer-sub">Room #{roomCode}</span>
-                </div>
-              </div>
-              <button
-                className="drawer-close-btn"
-                onClick={() => setIsDrawerOpen(false)}
-                aria-label="Close Navigation Drawer"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <nav className="drawer-body">
-              {/* SECTION 1: CONFIGS */}
-              <div className="drawer-section">
-                <span className="drawer-section-title">CONFIGS</span>
-
-                <button
-                  className={`drawer-item ${activeTab === 'config' && configSubTab === 'automation' ? 'active' : ''}`}
-                  onClick={() => {
-                    setActiveTab('config');
-                    setConfigSubTab('automation');
-                    setIsDrawerOpen(false);
-                  }}
-                >
-                  <Sliders size={18} />
-                  <span>Automation</span>
-                  <ChevronRight size={15} className="drawer-chevron" />
-                </button>
-
-                <button
-                  className={`drawer-item ${activeTab === 'config' && configSubTab === 'agents' ? 'active' : ''}`}
-                  onClick={() => {
-                    setActiveTab('config');
-                    setConfigSubTab('agents');
-                    setIsDrawerOpen(false);
-                  }}
-                >
-                  <Crosshair size={18} />
-                  <span>Agents</span>
-                  <ChevronRight size={15} className="drawer-chevron" />
-                </button>
-
-                <button
-                  className={`drawer-item ${activeTab === 'config' && configSubTab === 'chat' ? 'active' : ''}`}
-                  onClick={() => {
-                    setActiveTab('config');
-                    setConfigSubTab('chat');
-                    setIsDrawerOpen(false);
-                  }}
-                >
-                  <MessageSquare size={18} />
-                  <span>Chat</span>
-                  <ChevronRight size={15} className="drawer-chevron" />
-                </button>
-
-                <button
-                  className={`drawer-item ${activeTab === 'config' && configSubTab === 'voting' ? 'active' : ''}`}
-                  onClick={() => {
-                    setActiveTab('config');
-                    setConfigSubTab('voting');
-                    setIsDrawerOpen(false);
-                  }}
-                >
-                  <Vote size={18} />
-                  <span>Voting</span>
-                  <ChevronRight size={15} className="drawer-chevron" />
-                </button>
-              </div>
-
-              {/* SECTION 2: TRACKER */}
-              <div className="drawer-section">
-                <span className="drawer-section-title">TRACKER</span>
-
-                <button
-                  className={`drawer-item ${activeTab === 'tracker' && trackerSubTab === 'roster' ? 'active' : ''}`}
-                  onClick={() => {
-                    setActiveTab('tracker');
-                    setTrackerSubTab('roster');
-                    sendAction('refresh_roster');
-                    setIsDrawerOpen(false);
-                  }}
-                >
-                  <Users size={18} />
-                  <span>Match Tracker</span>
-                  <ChevronRight size={15} className="drawer-chevron" />
-                </button>
-
-                <button
-                  className={`drawer-item ${activeTab === 'tracker' && trackerSubTab === 'shop' ? 'active' : ''}`}
-                  onClick={() => {
-                    setActiveTab('tracker');
-                    setTrackerSubTab('shop');
-                    sendAction('request_storefront');
-                    setIsDrawerOpen(false);
-                  }}
-                >
-                  <ShoppingBag size={18} />
-                  <span>Daily Shop</span>
-                  <ChevronRight size={15} className="drawer-chevron" />
-                </button>
-              </div>
-
-              {/* SECTION 3: STATUS */}
-              <div className="drawer-section">
-                <span className="drawer-section-title">STATUS</span>
-
-                <button
-                  className={`drawer-item ${activeTab === 'status' && statusSubTab === 'screenshot' ? 'active' : ''}`}
-                  onClick={() => {
-                    setActiveTab('status');
-                    setStatusSubTab('screenshot');
-                    setIsDrawerOpen(false);
-                  }}
-                >
-                  <Camera size={18} />
-                  <span>Screenshot</span>
-                  <ChevronRight size={15} className="drawer-chevron" />
-                </button>
-
-                <button
-                  className={`drawer-item danger ${activeTab === 'status' && statusSubTab === 'danger' ? 'active' : ''}`}
-                  onClick={() => {
-                    setActiveTab('status');
-                    setStatusSubTab('danger');
-                    setIsDrawerOpen(false);
-                  }}
-                >
-                  <AlertTriangle size={18} />
-                  <span>Danger Zone</span>
-                  <ChevronRight size={15} className="drawer-chevron" />
-                </button>
-              </div>
-            </nav>
-
-            <div className="drawer-footer">
-              <button className="drawer-logout-btn" onClick={handleDisconnect}>
-                <LogOut size={16} />
-                <span>Disconnect Room</span>
-              </button>
-            </div>
-          </aside>
-        </>
-      )}
 
       {/* PAIRING VIEW (NOT CONNECTED) */}
       {!isConnected && (
         <main className="mobile-body pairing-body">
-          <div className="pairing-card">
-            <div className="pairing-header">
-              <div className="icon-pairing-badge">
-                <Radio size={28} color="#38bdf8" />
-              </div>
-              <h2 className="pairing-title">Pair with SageBot PC</h2>
-              <p className="pairing-desc">
-                Open SageBot on your PC, click <strong>Mobile Remote</strong> in the sidebar, and enter your 6-digit room code.
-              </p>
+          <div className="sleek-pairing-card">
+            <div className="pairing-hero-icon">
+              <Shield size={32} color="#38bdf8" />
             </div>
 
-            <div className="pin-input-group">
-              <input
-                type="text"
-                maxLength={6}
-                placeholder="6-DIGIT CODE"
-                value={pinInput}
-                onChange={(e) => setPinInput(e.target.value.toUpperCase())}
-                className="pin-code-input tabular-nums"
-                autoComplete="off"
-                autoCorrect="off"
-                spellCheck="false"
-              />
+            <h2 className="pairing-main-title">Pair with SageBot PC</h2>
+            <p className="pairing-main-desc">
+              Enter the 6-digit room code from your PC’s <strong>Mobile Remote</strong> tab.
+            </p>
+
+            <div className="code-input-container">
+              <div className="input-with-paste">
+                <input
+                  type="text"
+                  maxLength={6}
+                  placeholder="000000"
+                  value={pinInput}
+                  onChange={(e) => setPinInput(e.target.value.toUpperCase())}
+                  className="sleek-pin-input tabular-nums"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck="false"
+                />
+                <button
+                  type="button"
+                  className="paste-action-btn"
+                  onClick={handlePasteClipboard}
+                  title="Paste from clipboard"
+                >
+                  <ClipboardPaste size={16} />
+                </button>
+              </div>
+
               <button
-                className="connect-btn"
+                className="sleek-connect-btn"
                 disabled={isConnecting || pinInput.trim().length < 4}
                 onClick={() => connectToPC(pinInput)}
               >
-                {isConnecting ? 'Connecting...' : 'Connect to PC'}
+                {isConnecting ? 'Connecting to PC...' : 'Connect to PC'}
               </button>
             </div>
 
             {connectionError && (
-              <div className="error-callout" role="alert">
-                <AlertTriangle size={16} />
+              <div className="sleek-error-callout" role="alert">
+                <AlertTriangle size={15} />
                 <span>{connectionError}</span>
               </div>
             )}
 
-            <div className="pairing-hint">
-              <span>Scanning the QR code on PC connects automatically with zero typing.</span>
+            <div className="pairing-footer-hint">
+              <span>💡 Scanning the QR code in SageBot PC pairs automatically with zero typing.</span>
             </div>
           </div>
         </main>
       )}
 
-      {/* MAIN CONNECTED CONTENT */}
+      {/* CONNECTED MAIN VIEW */}
       {isConnected && (
         <main className="mobile-body">
-          {/* TAB 1: CONFIG (LIVE IN-GAME PINNED ON TOP + DYNAMIC CONFIG SUBVIEWS) */}
-          {activeTab === 'config' && (
+          {/* TAB 1: STATUS (LIVE INGAME, SCREENSHOT, MINIMAL LOGS) */}
+          {activeTab === 'status' && (
             <div className="tab-pane">
-              {/* PINNED IN-GAME MATCH STATE & POWER BUTTON (ALWAYS VISIBLE ON CONFIG TAB) */}
-              <div className="pinned-hero-surface">
-                <div className="surface-top">
+              {/* PRIMARY LIVE MATCH CARD */}
+              <div className="live-match-card">
+                <div className="card-top-row">
                   <span className="state-badge" style={{ color: badge.color, backgroundColor: badge.bg }}>
                     {badge.label}
                   </span>
-                  <span className="gamemode-label">
+                  <span className="gamemode-text">
                     {status?.gamemode && status.gamemode !== '-' ? status.gamemode : 'VALORANT'}
                   </span>
                 </div>
 
                 {status?.match_state === 'In Game' ? (
-                  <div className="score-hero">
-                    <div className="score-team ally">
-                      <span className="score-num tabular-nums">{status.score_ally}</span>
-                      <span className="score-tag">ALLY</span>
+                  <div className="score-board">
+                    <div className="team-score ally">
+                      <span className="score-digit tabular-nums">{status.score_ally}</span>
+                      <span className="team-sub">ALLY</span>
                     </div>
-                    <span className="score-divider">:</span>
-                    <div className="score-team enemy">
-                      <span className="score-num tabular-nums">{status.score_enemy}</span>
-                      <span className="score-tag">ENEMY</span>
+                    <span className="score-sep">:</span>
+                    <div className="team-score enemy">
+                      <span className="score-digit tabular-nums">{status.score_enemy}</span>
+                      <span className="team-sub">ENEMY</span>
                     </div>
                   </div>
                 ) : (
-                  <div className="match-idle-hero">
-                    <span className="map-name-display">
+                  <div className="match-idle-view">
+                    <span className="idle-map-name">
                       {status?.map_name && status.map_name !== '-' ? status.map_name : 'No Active Match'}
                     </span>
-                    <span className="agent-name-display">
+                    <span className="idle-player-sub">
                       {status?.current_agent && status.current_agent !== '-'
                         ? `Playing as ${status.current_agent}`
                         : status?.player_name ? `${status.player_name}#${status.player_tag}` : 'VALORANT Ready'}
@@ -706,686 +525,460 @@ export function App() {
                   </div>
                 )}
 
-                <div className="surface-stats-grid">
-                  <div className="stat-slot">
-                    <span className="slot-title">MAP</span>
-                    <span className="slot-value">{status?.map_name || '-'}</span>
+                <div className="quick-stats-row">
+                  <div className="stat-pill">
+                    <span className="stat-label">MAP</span>
+                    <span className="stat-val">{status?.map_name || '-'}</span>
                   </div>
-                  <div className="stat-slot">
-                    <span className="slot-title">AGENT</span>
-                    <span className="slot-value">{status?.current_agent || '-'}</span>
+                  <div className="stat-pill">
+                    <span className="stat-label">AGENT</span>
+                    <span className="stat-val">{status?.current_agent || '-'}</span>
                   </div>
-                  <div className="stat-slot">
-                    <span className="slot-title">RANK</span>
-                    <span className="slot-value">{status?.rank_name || 'Unranked'}</span>
+                  <div className="stat-pill">
+                    <span className="stat-label">RANK</span>
+                    <span className="stat-val">{status?.rank_name || 'Unranked'}</span>
                   </div>
-                  <div className="stat-slot">
-                    <span className="slot-title">BOT STATUS</span>
-                    <span className={`slot-value ${botConfig.bot_running ? 'online' : 'offline'}`}>
-                      {botConfig.bot_running ? 'ACTIVE' : 'STOPPED'}
+                  <div className="stat-pill">
+                    <span className="stat-label">BOT</span>
+                    <span className={`stat-val ${botRunning ? 'online' : 'offline'}`}>
+                      {botRunning ? 'ACTIVE' : 'STOPPED'}
                     </span>
                   </div>
                 </div>
 
-                {/* PINNED SAGEBOT START / STOP BUTTON */}
+                {/* START / STOP SAGEBOT POWER BUTTON */}
                 <button
-                  className={`primary-power-btn ${botConfig.bot_running ? 'running' : 'stopped'}`}
+                  className={`bot-power-btn ${botRunning ? 'running' : 'stopped'}`}
                   onClick={() => sendAction('toggle_bot')}
                 >
-                  <Power size={20} />
-                  <span>{botConfig.bot_running ? 'STOP SAGEBOT' : 'START SAGEBOT'}</span>
+                  <Power size={18} />
+                  <span>{botRunning ? 'STOP SAGEBOT' : 'START SAGEBOT'}</span>
                 </button>
               </div>
 
-              {/* CONFIG SUB-TABS PILL BAR */}
-              <div className="sub-pills-bar" role="tablist" aria-label="Config Sub-views">
-                <button
-                  role="tab"
-                  aria-selected={configSubTab === 'automation'}
-                  className={`sub-pill-btn ${configSubTab === 'automation' ? 'active' : ''}`}
-                  onClick={() => setConfigSubTab('automation')}
-                >
-                  <Sliders size={14} />
-                  <span>Automation</span>
-                </button>
-                <button
-                  role="tab"
-                  aria-selected={configSubTab === 'agents'}
-                  className={`sub-pill-btn ${configSubTab === 'agents' ? 'active' : ''}`}
-                  onClick={() => setConfigSubTab('agents')}
-                >
-                  <Crosshair size={14} />
-                  <span>Agents</span>
-                </button>
-                <button
-                  role="tab"
-                  aria-selected={configSubTab === 'chat'}
-                  className={`sub-pill-btn ${configSubTab === 'chat' ? 'active' : ''}`}
-                  onClick={() => setConfigSubTab('chat')}
-                >
-                  <MessageSquare size={14} />
-                  <span>Chat</span>
-                </button>
-                <button
-                  role="tab"
-                  aria-selected={configSubTab === 'voting'}
-                  className={`sub-pill-btn ${configSubTab === 'voting' ? 'active' : ''}`}
-                  onClick={() => setConfigSubTab('voting')}
-                >
-                  <Vote size={14} />
-                  <span>Voting</span>
-                </button>
+              {/* SCREENSHOT CARD */}
+              <div className="surface-card">
+                <div className="surface-card-header">
+                  <div className="header-left-title">
+                    <Camera size={16} color="#38bdf8" />
+                    <span className="card-heading">Screen Capture</span>
+                  </div>
+                  <button
+                    className="screenshot-action-btn"
+                    disabled={isCapturingScreenshot}
+                    onClick={() => {
+                      setIsCapturingScreenshot(true);
+                      sendAction('take_screenshot');
+                    }}
+                  >
+                    <RefreshCw size={14} className={isCapturingScreenshot ? 'spin' : ''} />
+                    <span>{isCapturingScreenshot ? 'Capturing...' : 'Capture Game Screen'}</span>
+                  </button>
+                </div>
+
+                {screenshotUrl ? (
+                  <div className="screenshot-img-card">
+                    <img src={screenshotUrl} alt="Live VALORANT Screen" className="screenshot-img" />
+                  </div>
+                ) : (
+                  <div className="empty-sub-state">
+                    <p>No screenshot captured yet.</p>
+                    <span>Tap Capture to preview your PC's active VALORANT screen.</span>
+                  </div>
+                )}
               </div>
 
-              {/* SUBVIEW 1: AUTOMATION */}
-              {configSubTab === 'automation' && (
-                <div className="subtab-content">
-                  <div className="toggles-grid">
-                    <button
-                      type="button"
-                      className={`toggle-tile ${botConfig.anti_afk_enabled ? 'active' : ''}`}
-                      onClick={() => sendAction('toggle_anti_afk')}
-                    >
-                      <div className="tile-icon-row">
-                        <Activity size={18} />
-                        <span className="tile-switch"></span>
-                      </div>
-                      <span className="tile-label">Anti-AFK</span>
-                      <span className="tile-sub">Bypass AFK detection</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      className={`toggle-tile ${botConfig.auto_queue_enabled ? 'active' : ''}`}
-                      onClick={() => sendAction('toggle_auto_queue')}
-                    >
-                      <div className="tile-icon-row">
-                        <Play size={18} />
-                        <span className="tile-switch"></span>
-                      </div>
-                      <span className="tile-label">Auto Queue</span>
-                      <span className="tile-sub">{botConfig.auto_queue_mode || 'Competitive'}</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      className={`toggle-tile ${botConfig.auto_ff_enabled ? 'active' : ''}`}
-                      onClick={() => sendAction('toggle_auto_ff')}
-                    >
-                      <div className="tile-icon-row">
-                        <Flame size={18} />
-                        <span className="tile-switch"></span>
-                      </div>
-                      <span className="tile-label">Auto /ff</span>
-                      <span className="tile-sub">Surrender votes</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      className={`toggle-tile ${botConfig.auto_kj_turret ? 'active' : ''}`}
-                      onClick={() => sendAction('toggle_auto_kj')}
-                    >
-                      <div className="tile-icon-row">
-                        <Crosshair size={18} />
-                        <span className="tile-switch"></span>
-                      </div>
-                      <span className="tile-label">KJ Turret</span>
-                      <span className="tile-sub">Auto place in round</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      className={`toggle-tile ${botConfig.auto_reconnect ? 'active' : ''}`}
-                      onClick={() => sendAction('toggle_auto_reconnect')}
-                    >
-                      <div className="tile-icon-row">
-                        <RotateCcw size={18} />
-                        <span className="tile-switch"></span>
-                      </div>
-                      <span className="tile-label">Auto Reconnect</span>
-                      <span className="tile-sub">Relaunch if crashed</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      className={`toggle-tile ${botConfig.lock_random_agent ? 'active' : ''}`}
-                      onClick={() => sendAction('toggle_random_agent')}
-                    >
-                      <div className="tile-icon-row">
-                        <Sparkles size={18} />
-                        <span className="tile-switch"></span>
-                      </div>
-                      <span className="tile-label">Random Agent</span>
-                      <span className="tile-sub">Pick from queue</span>
-                    </button>
+              {/* MINIMAL LOGS CARD */}
+              <div className="surface-card">
+                <div className="surface-card-header">
+                  <div className="header-left-title">
+                    <Terminal size={16} color="#38bdf8" />
+                    <span className="card-heading">Recent Logs</span>
                   </div>
                 </div>
-              )}
 
-              {/* SUBVIEW 2: AGENTS */}
-              {configSubTab === 'agents' && (
-                <div className="subtab-content">
-                  <div className="card-panel">
-                    <div className="panel-row">
-                      <div>
-                        <span className="panel-title">Instalock Agent</span>
-                        <span className="panel-desc">Automatically lock chosen agent on Agent Select</span>
+                <div className="minimal-logs-console">
+                  {logs.length === 0 ? (
+                    <span className="logs-empty">No activity recorded yet.</span>
+                  ) : (
+                    logs.map((line, idx) => (
+                      <div key={idx} className="log-item">
+                        <span className="log-line-text">{line}</span>
                       </div>
-                      <label className="switch">
-                        <input
-                          type="checkbox"
-                          checked={botConfig.instalock_enabled ?? false}
-                          onChange={(e) => updateConfig({ instalock_enabled: e.target.checked })}
-                        />
-                        <span className="slider round"></span>
-                      </label>
-                    </div>
-
-                    <div className="panel-row" style={{ marginTop: '14px' }}>
-                      <div>
-                        <span className="panel-title">Starter Fallback</span>
-                        <span className="panel-desc">Pick Starter Agent if primary is unavailable</span>
-                      </div>
-                      <label className="switch">
-                        <input
-                          type="checkbox"
-                          checked={botConfig.starter_fallback_enabled ?? false}
-                          onChange={(e) => updateConfig({ starter_fallback_enabled: e.target.checked })}
-                        />
-                        <span className="slider round"></span>
-                      </label>
-                    </div>
-
-                    <div className="slider-container" style={{ marginTop: '16px' }}>
-                      <div className="slider-header">
-                        <span className="panel-title">Lock Delay</span>
-                        <span className="slider-value tabular-nums">{botConfig.lock_delay ?? 20} ms</span>
-                      </div>
-                      <input
-                        type="range"
-                        min="0"
-                        max="500"
-                        step="10"
-                        value={botConfig.lock_delay ?? 20}
-                        onChange={(e) => updateConfig({ lock_delay: Number(e.target.value) })}
-                        className="mobile-range-slider"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="card-panel" style={{ marginTop: '12px' }}>
-                    <div className="agent-picker-header">
-                      <span className="panel-title">Selected Agent: <strong style={{ color: '#38bdf8' }}>{selectedAgentName}</strong></span>
-                      <input
-                        type="text"
-                        placeholder="Search agent..."
-                        value={agentSearch}
-                        onChange={(e) => setAgentSearch(e.target.value)}
-                        className="agent-search-input"
-                      />
-                    </div>
-
-                    <div className="agent-chips-grid">
-                      {VALORANT_AGENTS.filter((a) => a.toLowerCase().includes(agentSearch.toLowerCase())).map((ag) => {
-                        const isSelected = selectedAgentName.toLowerCase() === ag.toLowerCase();
-                        return (
-                          <button
-                            key={ag}
-                            type="button"
-                            className={`agent-chip ${isSelected ? 'selected' : ''}`}
-                            onClick={() => updateConfig({ selected_agents: [ag] })}
-                          >
-                            <span className="agent-avatar-mini">{ag.slice(0, 2)}</span>
-                            <span className="agent-chip-name">{ag}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
+                    ))
+                  )}
                 </div>
-              )}
+              </div>
+            </div>
+          )}
 
-              {/* SUBVIEW 3: CHAT */}
-              {configSubTab === 'chat' && (
-                <div className="subtab-content">
-                  <div className="card-panel">
-                    <div className="panel-row">
-                      <div>
-                        <span className="panel-title">Auto Chat Broadcast</span>
-                        <span className="panel-desc">Automate periodic in-game message sending</span>
-                      </div>
-                      <label className="switch">
-                        <input
-                          type="checkbox"
-                          checked={botConfig.chat_enabled ?? false}
-                          onChange={(e) => updateConfig({ chat_enabled: e.target.checked })}
-                        />
-                        <span className="slider round"></span>
-                      </label>
-                    </div>
+          {/* TAB 2: TRACKER (FULL VERIFIED ROSTER FROM PC) */}
+          {activeTab === 'tracker' && (
+            <div className="tab-pane">
+              <div className="surface-card">
+                <div className="surface-card-header">
+                  <div>
+                    <h3 className="card-heading">Match Tracker</h3>
+                    <span className="card-subheading">
+                      {roster?.map_name || status?.map_name || 'VALORANT'} • {roster?.gamemode || status?.gamemode || 'Match'}
+                    </span>
+                  </div>
+                  <button
+                    className="icon-refresh-btn"
+                    onClick={() => sendAction('refresh_roster')}
+                    aria-label="Refresh tracker"
+                  >
+                    <RefreshCw size={15} />
+                  </button>
+                </div>
 
-                    <div className="chat-target-selector" style={{ marginTop: '16px' }}>
-                      <span className="panel-title">Channel Target</span>
-                      <div className="target-btn-group">
-                        {['All', 'Team', 'Party'].map((target, idx) => (
-                          <button
-                            key={target}
-                            type="button"
-                            className={`target-pill ${(botConfig.chat_target ?? 0) === idx ? 'active' : ''}`}
-                            onClick={() => updateConfig({ chat_target: idx })}
-                          >
-                            {target}
-                          </button>
+                {!roster || (roster.ally_team.length === 0 && roster.enemy_team.length === 0) ? (
+                  <div className="empty-sub-state">
+                    <Users size={36} color="#64748b" />
+                    <p>No active match roster detected.</p>
+                    <span>Populates automatically when you enter Agent Select or In-Game on PC.</span>
+                  </div>
+                ) : (
+                  <div className="teams-scroll-container">
+                    {/* ALLY TEAM */}
+                    <div className="team-block ally-team">
+                      <span className="team-block-title ally">ALLY TEAM</span>
+                      <div className="players-list">
+                        {roster.ally_team.map((player: TrackedPlayer) => (
+                          <div key={player.puuid || player.name} className="roster-player-card ally">
+                            <div className="player-agent-col">
+                              {player.agent_id ? (
+                                <img
+                                  src={`https://media.valorant-api.com/agents/${player.agent_id}/displayicon.png`}
+                                  alt={player.agent_name}
+                                  className="player-agent-icon"
+                                  onError={(e) => {
+                                    (e.currentTarget as HTMLImageElement).style.display = 'none';
+                                  }}
+                                />
+                              ) : (
+                                <div className="agent-fallback-avatar">
+                                  <span>{player.agent_name.slice(0, 2)}</span>
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="player-info-col">
+                              <div className="player-name-row">
+                                <span className="player-display-name">{player.name}</span>
+                                {player.is_self && <span className="self-tag">YOU</span>}
+                                {player.party_tag && <span className="party-tag">{player.party_tag}</span>}
+                              </div>
+                              <span className="player-agent-name">{player.agent_name || 'Agent'}</span>
+                            </div>
+
+                            <div className="player-stats-col">
+                              <span className="player-rank-title">{player.current_rank_name || 'Unranked'}</span>
+                              <div className="stats-sub-row tabular-nums">
+                                <span className="player-wr">{player.win_rate ? `${Math.round(player.win_rate)}%` : '-'}</span>
+                                {player.kd_ratio && <span className="player-kd">{player.kd_ratio.toFixed(2)} KD</span>}
+                              </div>
+                            </div>
+                          </div>
                         ))}
                       </div>
                     </div>
 
-                    <div className="slider-container" style={{ marginTop: '16px' }}>
-                      <div className="slider-header">
-                        <span className="panel-title">Interval</span>
-                        <span className="slider-value tabular-nums">{botConfig.chat_interval ?? 180}s</span>
-                      </div>
-                      <input
-                        type="range"
-                        min="15"
-                        max="300"
-                        step="15"
-                        value={botConfig.chat_interval ?? 180}
-                        onChange={(e) => updateConfig({ chat_interval: Number(e.target.value) })}
-                        className="mobile-range-slider"
-                      />
-                    </div>
-
-                    <div className="chat-msg-box" style={{ marginTop: '16px' }}>
-                      <span className="panel-title">Message</span>
-                      <textarea
-                        rows={2}
-                        className="chat-textarea"
-                        value={botConfig.chat_text || ''}
-                        onChange={(e) => updateConfig({ chat_text: e.target.value })}
-                        placeholder="Message to send in-game..."
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* SUBVIEW 4: VOTING */}
-              {configSubTab === 'voting' && (
-                <div className="subtab-content">
-                  <div className="card-panel">
-                    <div className="panel-row">
-                      <div>
-                        <span className="panel-title">Auto /ff Surrender</span>
-                        <span className="panel-desc">Instantly vote yes and initiate surrender</span>
-                      </div>
-                      <label className="switch">
-                        <input
-                          type="checkbox"
-                          checked={botConfig.auto_ff_enabled ?? false}
-                          onChange={(e) => updateConfig({ auto_ff_enabled: e.target.checked })}
-                        />
-                        <span className="slider round"></span>
-                      </label>
-                    </div>
-
-                    <div className="voting-rounds-section" style={{ marginTop: '16px' }}>
-                      <span className="panel-title">Surrender Rounds</span>
-                      <div className="voting-rounds-list">
-                        <label className="round-checkbox-item">
-                          <input
-                            type="checkbox"
-                            checked={botConfig.auto_ff_round_5 ?? true}
-                            onChange={(e) => updateConfig({ auto_ff_round_5: e.target.checked })}
-                          />
-                          <span>Round 5 (Earliest Unrated/Competitive)</span>
-                        </label>
-                        <label className="round-checkbox-item">
-                          <input
-                            type="checkbox"
-                            checked={botConfig.auto_ff_round_13 ?? false}
-                            onChange={(e) => updateConfig({ auto_ff_round_13: e.target.checked })}
-                          />
-                          <span>Round 13 (Half-time change)</span>
-                        </label>
-                        <label className="round-checkbox-item">
-                          <input
-                            type="checkbox"
-                            checked={botConfig.auto_ff_round_14 ?? false}
-                            onChange={(e) => updateConfig({ auto_ff_round_14: e.target.checked })}
-                          />
-                          <span>Round 14 (Overtime vote)</span>
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* TAB 2: TRACKER (ROSTER & SHOP) */}
-          {activeTab === 'tracker' && (
-            <div className="tab-pane">
-              {/* TRACKER SUB-TABS PILL BAR */}
-              <div className="sub-pills-bar" role="tablist" aria-label="Tracker Sub-views">
-                <button
-                  role="tab"
-                  aria-selected={trackerSubTab === 'roster'}
-                  className={`sub-pill-btn ${trackerSubTab === 'roster' ? 'active' : ''}`}
-                  onClick={() => {
-                    setTrackerSubTab('roster');
-                    sendAction('refresh_roster');
-                  }}
-                >
-                  <Users size={14} />
-                  <span>Match Tracker</span>
-                </button>
-                <button
-                  role="tab"
-                  aria-selected={trackerSubTab === 'shop'}
-                  className={`sub-pill-btn ${trackerSubTab === 'shop' ? 'active' : ''}`}
-                  onClick={() => {
-                    setTrackerSubTab('shop');
-                    sendAction('request_storefront');
-                  }}
-                >
-                  <ShoppingBag size={14} />
-                  <span>Daily Shop</span>
-                </button>
-              </div>
-
-              {/* SUBVIEW 1: MATCH TRACKER */}
-              {trackerSubTab === 'roster' && (
-                <div className="subtab-content">
-                  <div className="roster-view-header">
-                    <div>
-                      <h3 className="section-title">Live Match Roster</h3>
-                      <span className="section-subtitle">Unmasked names, ranks & win rates</span>
-                    </div>
-                    <button
-                      className="icon-btn-refresh"
-                      onClick={() => sendAction('refresh_roster')}
-                      aria-label="Refresh live match roster"
-                    >
-                      <RefreshCw size={16} />
-                    </button>
-                  </div>
-
-                  {roster.length === 0 ? (
-                    <div className="empty-state-card">
-                      <Users size={36} color="#64748b" />
-                      <p>No active match roster detected.</p>
-                      <span>Roster populates automatically when you enter Agent Select or In-Game on PC.</span>
-                    </div>
-                  ) : (
-                    <div className="roster-list">
-                      {roster.map((player) => (
-                        <div key={player.puuid || player.game_name} className={`player-row ${player.team.toLowerCase()}`}>
-                          <div className="player-left">
-                            <div className="avatar-capsule">
-                              <span className="agent-avatar-text">{player.agent_name.slice(0, 2)}</span>
-                            </div>
-                            <div className="player-meta">
-                              <div className="player-name-line">
-                                <span className="player-name">{player.game_name}</span>
-                                {player.tag_line && <span className="player-tag">#{player.tag_line}</span>}
+                    {/* ENEMY TEAM */}
+                    {roster.enemy_team.length > 0 && (
+                      <div className="team-block enemy-team" style={{ marginTop: '16px' }}>
+                        <span className="team-block-title enemy">ENEMY TEAM</span>
+                        <div className="players-list">
+                          {roster.enemy_team.map((player: TrackedPlayer) => (
+                            <div key={player.puuid || player.name} className="roster-player-card enemy">
+                              <div className="player-agent-col">
+                                {player.agent_id ? (
+                                  <img
+                                    src={`https://media.valorant-api.com/agents/${player.agent_id}/displayicon.png`}
+                                    alt={player.agent_name}
+                                    className="player-agent-icon"
+                                    onError={(e) => {
+                                      (e.currentTarget as HTMLImageElement).style.display = 'none';
+                                    }}
+                                  />
+                                ) : (
+                                  <div className="agent-fallback-avatar">
+                                    <span>{player.agent_name.slice(0, 2)}</span>
+                                  </div>
+                                )}
                               </div>
-                              <span className="player-agent-sub">{player.agent_name}</span>
-                            </div>
-                          </div>
 
-                          <div className="player-right">
-                            <span className="player-rank-badge">{player.current_rank_name}</span>
-                            <span className="player-winrate-stat tabular-nums">{player.win_rate || '-'}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* SUBVIEW 2: DAILY SHOP */}
-              {trackerSubTab === 'shop' && (
-                <div className="subtab-content">
-                  {/* WALLET BAR */}
-                  <div className="wallet-strip">
-                    <div className="wallet-chip">
-                      <Coins size={14} color="#f59e0b" />
-                      <span className="wallet-label">VP</span>
-                      <span className="wallet-val tabular-nums">{status?.wallet?.vp?.toLocaleString() ?? '-'}</span>
-                    </div>
-                    <div className="wallet-chip">
-                      <Coins size={14} color="#a855f7" />
-                      <span className="wallet-label">RP</span>
-                      <span className="wallet-val tabular-nums">{status?.wallet?.rp?.toLocaleString() ?? '-'}</span>
-                    </div>
-                    <div className="wallet-chip">
-                      <Coins size={14} color="#38bdf8" />
-                      <span className="wallet-label">KC</span>
-                      <span className="wallet-val tabular-nums">{status?.wallet?.kc?.toLocaleString() ?? '-'}</span>
-                    </div>
-                  </div>
-
-                  <div className="shop-header-row">
-                    <div>
-                      <h3 className="section-title">Daily Offers</h3>
-                      {storefront?.daily_seconds_remaining ? (
-                        <span className="shop-timer tabular-nums">
-                          Resets in {formatCountdown(storefront.daily_seconds_remaining)}
-                        </span>
-                      ) : null}
-                    </div>
-                    <button
-                      className="icon-btn-refresh"
-                      onClick={() => sendAction('request_storefront')}
-                      aria-label="Refresh daily shop"
-                    >
-                      <RefreshCw size={16} />
-                    </button>
-                  </div>
-
-                  {!storefront || !storefront.daily_offers || storefront.daily_offers.length === 0 ? (
-                    <div className="empty-state-card">
-                      <ShoppingBag size={36} color="#64748b" />
-                      <p>Storefront not loaded.</p>
-                      <span>Tap refresh to fetch your daily skin offers directly from VALORANT.</span>
-                      <button
-                        className="fetch-shop-btn"
-                        onClick={() => sendAction('request_storefront')}
-                        style={{ marginTop: '12px' }}
-                      >
-                        Fetch Daily Shop
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="shop-skins-grid">
-                      {storefront.daily_offers.map((offer) => (
-                        <div key={offer.offer_id} className="skin-card">
-                          <div className="skin-img-wrap">
-                            {offer.icon_url ? (
-                              <img src={offer.icon_url} alt={offer.skin_name} className="skin-img" loading="lazy" />
-                            ) : (
-                              <div className="skin-img-placeholder">
-                                <ShoppingBag size={24} color="#64748b" />
+                              <div className="player-info-col">
+                                <div className="player-name-row">
+                                  <span className="player-display-name">{player.name}</span>
+                                  {player.party_tag && <span className="party-tag">{player.party_tag}</span>}
+                                </div>
+                                <span className="player-agent-name">{player.agent_name || 'Agent'}</span>
                               </div>
-                            )}
-                          </div>
-                          <div className="skin-info">
-                            <span className="skin-name">{offer.skin_name}</span>
-                            <div className="skin-price-row">
-                              <span className="weapon-type">{offer.weapon_name || 'Weapon Skin'}</span>
-                              <div className="price-tag tabular-nums">
-                                <span className="vp-currency-mark">VP</span>
-                                <span>{offer.cost_vp.toLocaleString()}</span>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
 
-                  {/* NIGHT MARKET (IF ACTIVE) */}
-                  {storefront?.night_market_active && storefront.night_market_offers && storefront.night_market_offers.length > 0 && (
-                    <div className="night-market-panel" style={{ marginTop: '20px' }}>
-                      <div className="nm-header">
-                        <span className="nm-title">Night.Market Offers</span>
-                        <span className="nm-timer tabular-nums">
-                          {formatCountdown(storefront.night_market_seconds_remaining)}
-                        </span>
-                      </div>
-                      <div className="shop-skins-grid">
-                        {storefront.night_market_offers.map((nm) => (
-                          <div key={nm.offer_id} className="skin-card nm-card">
-                            <div className="skin-img-wrap">
-                              {nm.icon_url && <img src={nm.icon_url} alt={nm.skin_name} className="skin-img" />}
-                              <span className="nm-discount-badge tabular-nums">-{nm.discount_percent}%</span>
-                            </div>
-                            <div className="skin-info">
-                              <span className="skin-name">{nm.skin_name}</span>
-                              <div className="skin-price-row">
-                                <span className="orig-price tabular-nums">{nm.original_cost_vp}</span>
-                                <div className="price-tag tabular-nums">
-                                  <span className="vp-currency-mark">VP</span>
-                                  <span>{nm.discounted_cost_vp.toLocaleString()}</span>
+                              <div className="player-stats-col">
+                                <span className="player-rank-title">{player.current_rank_name || 'Unranked'}</span>
+                                <div className="stats-sub-row tabular-nums">
+                                  <span className="player-wr">{player.win_rate ? `${Math.round(player.win_rate)}%` : '-'}</span>
+                                  {player.kd_ratio && <span className="player-kd">{player.kd_ratio.toFixed(2)} KD</span>}
                                 </div>
                               </div>
                             </div>
-                          </div>
-                        ))}
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </div>
-              )}
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
-          {/* TAB 3: STATUS (SCREENSHOT & DANGER ZONE) */}
-          {activeTab === 'status' && (
+          {/* TAB 3: SHOP (FULL CONTENT: WALLET, FEATURED BUNDLE, DAILY OFFERS, NIGHT MARKET, ACCESSORY) */}
+          {activeTab === 'shop' && (
             <div className="tab-pane">
-              {/* STATUS SUB-TABS PILL BAR */}
-              <div className="sub-pills-bar" role="tablist" aria-label="Status Sub-views">
-                <button
-                  role="tab"
-                  aria-selected={statusSubTab === 'screenshot'}
-                  className={`sub-pill-btn ${statusSubTab === 'screenshot' ? 'active' : ''}`}
-                  onClick={() => setStatusSubTab('screenshot')}
-                >
-                  <Camera size={14} />
-                  <span>Screen Capture</span>
-                </button>
-                <button
-                  role="tab"
-                  aria-selected={statusSubTab === 'danger'}
-                  className={`sub-pill-btn danger ${statusSubTab === 'danger' ? 'active' : ''}`}
-                  onClick={() => setStatusSubTab('danger')}
-                >
-                  <AlertTriangle size={14} />
-                  <span>Danger Zone</span>
-                </button>
+              {/* WALLET BAR */}
+              <div className="wallet-strip">
+                <div className="wallet-chip">
+                  <Coins size={14} color="#f59e0b" />
+                  <span className="wallet-label">VP</span>
+                  <span className="wallet-val tabular-nums">{status?.wallet?.vp?.toLocaleString() ?? '-'}</span>
+                </div>
+                <div className="wallet-chip">
+                  <Coins size={14} color="#a855f7" />
+                  <span className="wallet-label">RP</span>
+                  <span className="wallet-val tabular-nums">{status?.wallet?.rp?.toLocaleString() ?? '-'}</span>
+                </div>
+                <div className="wallet-chip">
+                  <Coins size={14} color="#38bdf8" />
+                  <span className="wallet-label">KC</span>
+                  <span className="wallet-val tabular-nums">{status?.wallet?.kc?.toLocaleString() ?? '-'}</span>
+                </div>
               </div>
 
-              {/* SUBVIEW 1: SCREENSHOT */}
-              {statusSubTab === 'screenshot' && (
-                <div className="subtab-content">
-                  <div className="screenshot-toolbar">
+              {/* SHOP CONTENT CONTAINER */}
+              <div className="surface-card">
+                <div className="surface-card-header">
+                  <div>
+                    <h3 className="card-heading">Shop</h3>
+                    {storefront?.daily_seconds_remaining ? (
+                      <span className="shop-countdown tabular-nums">
+                        Resets in {formatCountdown(storefront.daily_seconds_remaining)}
+                      </span>
+                    ) : (
+                      <span className="card-subheading">Storefront</span>
+                    )}
+                  </div>
+                  <button
+                    className="icon-refresh-btn"
+                    onClick={() => sendAction('request_storefront')}
+                    aria-label="Refresh shop"
+                  >
+                    <RefreshCw size={15} />
+                  </button>
+                </div>
+
+                {!storefront ? (
+                  <div className="empty-sub-state">
+                    <ShoppingBag size={36} color="#64748b" />
+                    <p>Shop not loaded yet.</p>
+                    <span>Tap refresh to fetch verified store offers from SageBot PC.</span>
                     <button
-                      className="capture-now-btn"
-                      disabled={isCapturingScreenshot}
-                      onClick={() => {
-                        setIsCapturingScreenshot(true);
-                        sendAction('take_screenshot');
-                      }}
+                      className="load-shop-btn"
+                      onClick={() => sendAction('request_storefront')}
                     >
-                      <Camera size={16} />
-                      <span>{isCapturingScreenshot ? 'Capturing...' : 'Capture Game Screen'}</span>
+                      Fetch Shop
+                    </button>
+                  </div>
+                ) : (
+                  <div className="shop-scroll-layout">
+                    {/* FEATURED BUNDLE */}
+                    {storefront.featured_bundles && storefront.featured_bundles.length > 0 && (
+                      <div className="bundle-feature-block">
+                        <span className="shop-subheading">FEATURED BUNDLE</span>
+                        {storefront.featured_bundles.map((bundle) => (
+                          <div key={bundle.bundle_id} className="bundle-card">
+                            {bundle.display_icon && (
+                              <img src={bundle.display_icon} alt={bundle.name} className="bundle-cover-img" />
+                            )}
+                            <div className="bundle-meta">
+                              <span className="bundle-name">{bundle.name}</span>
+                              <div className="bundle-price-row">
+                                <span className="time-left tabular-nums">
+                                  <Clock size={12} /> {formatCountdown(bundle.seconds_remaining)}
+                                </span>
+                                <span className="price-vp-pill tabular-nums">
+                                  {bundle.total_cost_vp.toLocaleString()} VP
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* DAILY 4 WEAPON SKINS */}
+                    {storefront.daily_offers && storefront.daily_offers.length > 0 && (
+                      <div className="daily-offers-block" style={{ marginTop: '16px' }}>
+                        <span className="shop-subheading">DAILY OFFERS</span>
+                        <div className="daily-skins-grid">
+                          {storefront.daily_offers.map((offer) => (
+                            <div key={offer.offer_id} className="daily-skin-tile">
+                              <div className="skin-preview-wrap">
+                                {offer.icon_url ? (
+                                  <img src={offer.icon_url} alt={offer.skin_name} className="skin-thumb" />
+                                ) : (
+                                  <ShoppingBag size={24} color="#64748b" />
+                                )}
+                              </div>
+                              <div className="skin-tile-footer">
+                                <span className="skin-title">{offer.skin_name}</span>
+                                <div className="skin-bottom-line">
+                                  <span className="skin-weapon">{offer.weapon_name}</span>
+                                  <span className="skin-cost tabular-nums">{offer.cost_vp.toLocaleString()} VP</span>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* NIGHT.MARKET (IF ACTIVE) */}
+                    {storefront.night_market_active && storefront.night_market_offers && storefront.night_market_offers.length > 0 && (
+                      <div className="night-market-block" style={{ marginTop: '20px' }}>
+                        <div className="nm-header-row">
+                          <span className="shop-subheading purple">NIGHT.MARKET</span>
+                          <span className="nm-countdown tabular-nums">
+                            {formatCountdown(storefront.night_market_seconds_remaining)}
+                          </span>
+                        </div>
+
+                        <div className="daily-skins-grid">
+                          {storefront.night_market_offers.map((nm) => (
+                            <div key={nm.offer_id} className="daily-skin-tile nm-tile">
+                              <span className="discount-tag tabular-nums">-{nm.discount_percent}%</span>
+                              <div className="skin-preview-wrap">
+                                {nm.icon_url && <img src={nm.icon_url} alt={nm.skin_name} className="skin-thumb" />}
+                              </div>
+                              <div className="skin-tile-footer">
+                                <span className="skin-title">{nm.skin_name}</span>
+                                <div className="skin-bottom-line">
+                                  <span className="orig-price-strike tabular-nums">{nm.original_cost_vp}</span>
+                                  <span className="skin-cost purple tabular-nums">
+                                    {nm.discounted_cost_vp.toLocaleString()} VP
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 4: SETTINGS (VERSION, NOTIFICATIONS, KILL VALORANT, LOGOUT) */}
+          {activeTab === 'settings' && (
+            <div className="tab-pane">
+              {/* VERSION CARD */}
+              <div className="surface-card version-card">
+                <div className="version-info-row">
+                  <div className="version-brand">
+                    <Shield size={22} color="#38bdf8" />
+                    <div>
+                      <h3 className="version-title">SageBot</h3>
+                      <span className="version-badge">v4.0</span>
+                    </div>
+                  </div>
+                  <span className="room-label-tag tabular-nums">Room #{roomCode}</span>
+                </div>
+                <p className="version-desc">
+                  Remote control & live match companion for SageBot PC.
+                </p>
+              </div>
+
+              {/* NOTIFICATION STATUS CARD */}
+              <div className="surface-card">
+                <div className="setting-action-row">
+                  <div className="setting-meta">
+                    <span className="setting-name">Phone Push Notifications</span>
+                    <span className="setting-desc">
+                      {hasNotifPermission
+                        ? 'Active — alerts will ring on match start & disconnect.'
+                        : 'Enable to receive lockscreen alerts on iOS & Android.'}
+                    </span>
+                  </div>
+                  {!hasNotifPermission && (
+                    <button className="enable-notif-btn" onClick={requestNotificationPermission}>
+                      <Bell size={14} />
+                      <span>Enable</span>
+                    </button>
+                  )}
+                  {hasNotifPermission && (
+                    <span className="notif-active-badge">
+                      <Check size={14} /> Active
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* DANGER ZONE CARD */}
+              <div className="danger-surface-card">
+                <div className="danger-card-header">
+                  <AlertTriangle size={18} color="#ef4444" />
+                  <span className="danger-heading">Danger Zone</span>
+                </div>
+
+                <div className="danger-options-list">
+                  <div className="danger-row">
+                    <div className="danger-row-meta">
+                      <span className="danger-opt-name">Kill VALORANT</span>
+                      <span className="danger-opt-desc">Force terminate VALORANT and Riot Client on your PC.</span>
+                    </div>
+                    <button className="btn-kill-action" onClick={() => setShowKillConfirm(true)}>
+                      <Skull size={15} />
+                      <span>Kill VALORANT</span>
                     </button>
                   </div>
 
-                  {screenshotUrl ? (
-                    <div className="screenshot-display-card">
-                      <img src={screenshotUrl} alt="VALORANT Screen Capture" className="captured-screen-img" />
+                  <div className="danger-row">
+                    <div className="danger-row-meta">
+                      <span className="danger-opt-name">Logout &amp; Unpair</span>
+                      <span className="danger-opt-desc">Disconnect remote session and clear saved room code.</span>
                     </div>
-                  ) : (
-                    <div className="empty-state-card">
-                      <Camera size={44} color="#64748b" />
-                      <p>No screenshot captured yet.</p>
-                      <span>Tap Capture Game Screen to take a real-time full snapshot of VALORANT on PC.</span>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* SUBVIEW 2: DANGER ZONE */}
-              {statusSubTab === 'danger' && (
-                <div className="subtab-content">
-                  <div className="danger-zone-container">
-                    <div className="danger-header">
-                      <AlertTriangle size={20} color="#ef4444" />
-                      <div>
-                        <h3 className="danger-title">Danger Zone</h3>
-                        <p className="danger-subtitle">High-impact system actions on PC & Remote</p>
-                      </div>
-                    </div>
-
-                    <div className="danger-actions-list">
-                      <div className="danger-action-row">
-                        <div className="danger-meta">
-                          <span className="action-name">Kill VALORANT</span>
-                          <span className="action-desc">Force close VALORANT and Riot Client instantly on PC</span>
-                        </div>
-                        <button
-                          className="danger-btn-red"
-                          onClick={() => setShowKillConfirm(true)}
-                        >
-                          <Skull size={16} />
-                          <span>Kill VALORANT</span>
-                        </button>
-                      </div>
-
-                      <div className="danger-action-row">
-                        <div className="danger-meta">
-                          <span className="action-name">Logout &amp; Disconnect</span>
-                          <span className="action-desc">Unpair this mobile device and clear saved room code</span>
-                        </div>
-                        <button
-                          className="danger-btn-outline"
-                          onClick={handleDisconnect}
-                        >
-                          <LogOut size={16} />
-                          <span>Logout</span>
-                        </button>
-                      </div>
-                    </div>
+                    <button className="btn-logout-action" onClick={handleDisconnect}>
+                      <LogOut size={15} />
+                      <span>Logout</span>
+                    </button>
                   </div>
                 </div>
-              )}
+              </div>
             </div>
           )}
         </main>
       )}
 
-      {/* BOTTOM NAVIGATION BAR: EXACTLY 3 PRIMARY TABS */}
+      {/* FOOTER NAVIGATION BAR: EXACTLY 4 TABS */}
       {isConnected && (
-        <nav className="mobile-nav" aria-label="Bottom Navigation">
+        <nav className="mobile-nav-footer" aria-label="Bottom Navigation">
           <button
-            className={`nav-tab-item ${activeTab === 'config' ? 'active' : ''}`}
-            onClick={() => setActiveTab('config')}
-            aria-selected={activeTab === 'config'}
+            className={`footer-nav-btn ${activeTab === 'status' ? 'active' : ''}`}
+            onClick={() => setActiveTab('status')}
+            aria-selected={activeTab === 'status'}
           >
-            <Sliders size={20} />
-            <span>Config</span>
+            <Activity size={20} />
+            <span>Status</span>
           </button>
 
           <button
-            className={`nav-tab-item ${activeTab === 'tracker' ? 'active' : ''}`}
+            className={`footer-nav-btn ${activeTab === 'tracker' ? 'active' : ''}`}
             onClick={() => {
               setActiveTab('tracker');
-              if (trackerSubTab === 'roster') sendAction('refresh_roster');
-              else sendAction('request_storefront');
+              sendAction('refresh_roster');
             }}
             aria-selected={activeTab === 'tracker'}
           >
@@ -1394,12 +987,24 @@ export function App() {
           </button>
 
           <button
-            className={`nav-tab-item ${activeTab === 'status' ? 'active' : ''}`}
-            onClick={() => setActiveTab('status')}
-            aria-selected={activeTab === 'status'}
+            className={`footer-nav-btn ${activeTab === 'shop' ? 'active' : ''}`}
+            onClick={() => {
+              setActiveTab('shop');
+              sendAction('request_storefront');
+            }}
+            aria-selected={activeTab === 'shop'}
           >
-            <Activity size={20} />
-            <span>Status</span>
+            <ShoppingBag size={20} />
+            <span>Shop</span>
+          </button>
+
+          <button
+            className={`footer-nav-btn ${activeTab === 'settings' ? 'active' : ''}`}
+            onClick={() => setActiveTab('settings')}
+            aria-selected={activeTab === 'settings'}
+          >
+            <Settings size={20} />
+            <span>Settings</span>
           </button>
         </nav>
       )}
