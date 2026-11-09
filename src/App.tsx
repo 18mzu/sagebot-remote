@@ -63,6 +63,10 @@ const formatCountdownDHMS = (totalSecs?: number): string => {
 export function App() {
   const [roomCode, setRoomCode] = useState<string>(() => {
     const params = new URLSearchParams(window.location.search);
+    const urlToken = params.get('token');
+    if (urlToken && urlToken.trim().length >= 16) {
+      localStorage.setItem('sagebot_secret_token', urlToken.trim());
+    }
     const urlRoom = params.get('room');
     if (urlRoom && urlRoom.trim().length >= 4) {
       const clean = urlRoom.trim().toUpperCase();
@@ -250,18 +254,21 @@ export function App() {
         token: storedToken,
         proposed_name: proposedName,
       });
-      bridge.send({ action: 'request_sync', type: 'request_sync' });
     };
 
     const bridge = new RemoteBridge(cleanRoom, 'mobile', {
       onBrokerReady: () => {
         sendPairRequest(bridge);
+        if (!storedToken) {
+          setIsConnecting(false);
+          setIsPendingApproval(true);
+        }
         if (!handshakeIntervalRef.current) {
           handshakeIntervalRef.current = setInterval(() => {
             if (!connectedRef.current) {
               sendPairRequest(bridge);
             }
-          }, 1400);
+          }, 1500);
         }
       },
       onMessage: (data: any) => {
@@ -279,6 +286,7 @@ export function App() {
           setIsConnecting(false);
           setConnectionError('');
           localStorage.setItem('sagebot_room_code', cleanRoom);
+          bridge.send({ action: 'request_sync', type: 'request_sync' });
           showToast(`Connected to SageBot PC`);
           return;
         }
@@ -289,6 +297,7 @@ export function App() {
           setConnectionError('Pairing request was denied on SageBot PC.');
           clearHandshakeTimers();
           bridge.destroy();
+          bridgeRef.current = null;
           return;
         }
 
@@ -301,21 +310,13 @@ export function App() {
           setIsConnecting(false);
           setIsPendingApproval(false);
           localStorage.removeItem('sagebot_secret_token');
+          localStorage.removeItem('sagebot_room_code');
           setConnectionError('Host reset remote pairing code. All devices disconnected.');
           return;
         }
 
-        if (!connectedRef.current) {
-          // If we receive sync or status directly (e.g. approved prior)
-          connectedRef.current = true;
-          clearHandshakeTimers();
-          setIsConnected(true);
-          setIsConnecting(false);
-          setIsPendingApproval(false);
-          setConnectionError('');
-          localStorage.setItem('sagebot_room_code', cleanRoom);
-          showToast('Connected to SageBot PC');
-        }
+        // Only process data packets if already authenticated and connected
+        if (!connectedRef.current) return;
 
         switch (msg.type) {
           case 'sync':
@@ -370,11 +371,8 @@ export function App() {
       if (!connectedRef.current) {
         setIsConnecting(false);
         setIsPendingApproval(true);
-        setConnectionError(
-          `Waiting for pairing approval on SageBot PC (${cleanRoom})... Look for the prompt on your PC.`
-        );
       }
-    }, 4500);
+    }, 3000);
   };
 
   const sendAction = (action: string, payload?: any) => {
@@ -1056,10 +1054,9 @@ export function App() {
                       <span className="version-badge">v4.0</span>
                     </div>
                   </div>
-                  <span className="room-label-tag tabular-nums">Room #{roomCode}</span>
                 </div>
                 <p className="version-desc">
-                  Remote control & live match companion for SageBot PC.
+                  SageBot is a multi-functional, external VALORANT utility.
                 </p>
               </div>
 
