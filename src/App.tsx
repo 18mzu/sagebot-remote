@@ -1100,10 +1100,10 @@ export function App() {
                     {remoteConfig?.anti_afk_mode === 1
                       ? 'Hold Mode'
                       : remoteConfig?.anti_afk_mode === 2
-                      ? 'WASD Cycle'
-                      : remoteConfig?.anti_afk_mode === 3
-                      ? 'Custom Macro'
-                      : 'Click Mode'}
+                        ? 'WASD Cycle'
+                        : remoteConfig?.anti_afk_mode === 3
+                          ? 'Custom Macro'
+                          : 'Click Mode'}
                   </span>
                 </div>
                 <div className="antiafk-details-row">
