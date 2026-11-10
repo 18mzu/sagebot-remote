@@ -494,6 +494,7 @@ export function App() {
       type: 'action',
       action,
       payload,
+      ...(payload && typeof payload === 'object' ? payload : {}),
     });
   };
 
