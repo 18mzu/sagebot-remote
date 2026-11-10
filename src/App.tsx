@@ -16,6 +16,10 @@ import {
   ClipboardPaste,
   Check,
   Radio,
+  Play,
+  Square,
+  Flame,
+  X,
 } from 'lucide-react';
 import { RemoteBridge } from './remoteBridge';
 import { ALL_VALORANT_AGENTS } from './data/agents';
@@ -133,6 +137,7 @@ export function App() {
   const [isLocking, setIsLocking] = useState<boolean>(false);
   const [showMatchWarningModal, setShowMatchWarningModal] = useState<boolean>(false);
   const [manualAgentSelectActive, setManualAgentSelectActive] = useState<boolean>(false);
+  const [showGamemodeModal, setShowGamemodeModal] = useState<boolean>(false);
   const handledPregameMatchIdRef = useRef<string>('');
 
   // Notifications & Modals
@@ -1018,6 +1023,27 @@ export function App() {
                   <Power size={18} />
                   <span>{botRunning ? 'STOP SAGEBOT' : 'START SAGEBOT'}</span>
                 </button>
+
+                {/* MATCHMAKING QUEUE (LOBBY: FIND MATCH | IN QUEUE: STOP QUEUE) */}
+                {status?.match_state === 'In Queue' ? (
+                  <button
+                    type="button"
+                    className="matchmaking-btn in-queue"
+                    onClick={() => sendAction('cancel_matchmaking')}
+                  >
+                    <Square size={16} fill="currentColor" />
+                    <span>STOP QUEUE</span>
+                  </button>
+                ) : !status?.match_state?.includes('In Game') && status?.match_state !== 'Agent Select' ? (
+                  <button
+                    type="button"
+                    className="matchmaking-btn find-match"
+                    onClick={() => setShowGamemodeModal(true)}
+                  >
+                    <Play size={16} fill="currentColor" />
+                    <span>FIND MATCH</span>
+                  </button>
+                ) : null}
               </div>
 
               {/* SCREENSHOT CARD */}
@@ -1554,6 +1580,7 @@ export function App() {
                   setIsLocking(true);
                   sendAction('remote_lock_agent', {
                     agentId: pendingAgentLock.id,
+                    agent_id: pendingAgentLock.id,
                     agentName: pendingAgentLock.name,
                   });
                   setPendingAgentLock(null);
@@ -1602,6 +1629,54 @@ export function App() {
               >
                 No, Keep PC Settings
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CHOOSE GAMEMODES MODAL */}
+      {showGamemodeModal && (
+        <div className="agent-confirm-backdrop" onClick={() => setShowGamemodeModal(false)}>
+          <div className="gamemodes-sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="gamemodes-header">
+              <div className="gamemodes-title-wrap">
+                <Flame size={18} color="#00f0b5" />
+                <h3 className="gamemodes-title">Choose Gamemode</h3>
+              </div>
+              <button
+                type="button"
+                className="gamemodes-close-btn"
+                onClick={() => setShowGamemodeModal(false)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="gamemodes-list">
+              {[
+                { id: 'competitive', name: 'Competitive', desc: 'Ranked 5v5 competitive play', tag: 'RANKED' },
+                { id: 'unrated', name: 'Unrated', desc: 'Standard 5v5 full match', tag: 'STANDARD' },
+                { id: 'swiftplay', name: 'Swiftplay', desc: 'Fast-paced 5 rounds to win', tag: 'CASUAL' },
+                { id: 'spikerush', name: 'Spike Rush', desc: 'Quick 4 rounds with random weapons', tag: 'FAST' },
+                { id: 'hurm', name: 'Team Deathmatch', desc: '5v5 fast respawn weapon tiers', tag: 'TDM' },
+                { id: 'deathmatch', name: 'Deathmatch', desc: 'Free-for-all aim warmup', tag: 'FFA' },
+              ].map((mode) => (
+                <div
+                  key={mode.id}
+                  className={`gamemode-card ${mode.id}`}
+                  onClick={() => {
+                    sendAction('start_matchmaking', { queueId: mode.id });
+                    setShowGamemodeModal(false);
+                    showToast(`Entering queue for ${mode.name}...`);
+                  }}
+                >
+                  <div className="gamemode-card-info">
+                    <span className="gamemode-card-name">{mode.name}</span>
+                    <span className="gamemode-card-desc">{mode.desc}</span>
+                  </div>
+                  <span className="gamemode-card-tag">{mode.tag}</span>
+                </div>
+              ))}
             </div>
           </div>
         </div>

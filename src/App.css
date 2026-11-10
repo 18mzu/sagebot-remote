@@ -2237,3 +2237,147 @@ body {
   padding: 5px 10px;
   border-radius: 6px;
 }
+
+/* ========================================================= */
+/* FIND MATCH & CANCEL QUEUE BUTTONS */
+/* ========================================================= */
+.matchmaking-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px;
+  margin-top: 10px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.matchmaking-btn.find-match {
+  background: linear-gradient(135deg, #00f0b5 0%, #06b6d4 100%);
+  color: #000000;
+  box-shadow: 0 4px 16px rgba(0, 240, 181, 0.35);
+}
+
+.matchmaking-btn.find-match:active {
+  transform: scale(0.97);
+}
+
+.matchmaking-btn.in-queue {
+  background: #f43f5e;
+  color: #ffffff;
+  box-shadow: 0 4px 16px rgba(244, 63, 94, 0.4);
+  animation: pulseQueue 1.8s infinite;
+}
+
+@keyframes pulseQueue {
+  0% { box-shadow: 0 0 0 0 rgba(244, 63, 94, 0.7); }
+  70% { box-shadow: 0 0 0 10px rgba(244, 63, 94, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(244, 63, 94, 0); }
+}
+
+/* GAMEMODES MODAL SHEET */
+.gamemodes-sheet {
+  background: linear-gradient(180deg, #161b26 0%, #0f121a 100%);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 18px;
+  width: 100%;
+  max-width: 360px;
+  padding: 18px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7);
+}
+
+.gamemodes-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.gamemodes-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gamemodes-title {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.gamemodes-close-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.gamemodes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 380px;
+  overflow-y: auto;
+}
+
+.gamemode-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.gamemode-card:active {
+  transform: scale(0.97);
+  background: rgba(56, 189, 248, 0.1);
+  border-color: rgba(56, 189, 248, 0.3);
+}
+
+.gamemode-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.gamemode-card-name {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.gamemode-card-desc {
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+}
+
+.gamemode-card-tag {
+  font-size: 9.5px;
+  font-weight: 800;
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+.gamemode-card.competitive .gamemode-card-tag {
+  background: rgba(251, 191, 36, 0.18);
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.4);
+}
