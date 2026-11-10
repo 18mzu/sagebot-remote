@@ -66,7 +66,12 @@ export function randomHex(byteLength: number): string {
 }
 
 export function normalizeCode(code: string): string {
-  return code.trim().toUpperCase();
+  return code.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+}
+
+export function formatCodeDisplay(code: string): string {
+  const clean = normalizeCode(code).slice(0, 8);
+  return clean.length > 4 ? `${clean.slice(0, 4)}-${clean.slice(4)}` : clean;
 }
 
 export function generatePairCode(): string {
