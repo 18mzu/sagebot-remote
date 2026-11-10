@@ -1654,18 +1654,19 @@ export function App() {
 
             <div className="gamemodes-list">
               {[
-                { id: 'competitive', name: 'Competitive', desc: 'Ranked 5v5 competitive play', tag: 'RANKED' },
-                { id: 'unrated', name: 'Unrated', desc: 'Standard 5v5 full match', tag: 'STANDARD' },
-                { id: 'swiftplay', name: 'Swiftplay', desc: 'Fast-paced 5 rounds to win', tag: 'CASUAL' },
-                { id: 'spikerush', name: 'Spike Rush', desc: 'Quick 4 rounds with random weapons', tag: 'FAST' },
-                { id: 'hurm', name: 'Team Deathmatch', desc: '5v5 fast respawn weapon tiers', tag: 'TDM' },
-                { id: 'deathmatch', name: 'Deathmatch', desc: 'Free-for-all aim warmup', tag: 'FFA' },
+                { id: 'competitive', name: 'Competitive', desc: 'Same as Unrated, but it is ranked.', tag: 'CORE' },
+                { id: 'unrated', name: 'Unrated', desc: '5v5. First to 13 win.', tag: 'CORE' },
+                { id: 'swiftplay', name: 'Swiftplay', desc: 'First to 4 win. Accelerated economy.', tag: 'CORE' },
+                { id: 'spikerush', name: 'Spike Rush', desc: 'First to 4 win. Random weapons and powerup orbs.', tag: 'ARCADE' },
+                { id: 'hurm', name: 'Team Deathmatch', desc: '5v5. First team to 100 kills win.', tag: 'ARCADE' },
+                { id: 'deathmatch', name: 'Deathmatch', desc: 'First to 40 kills win. No abilities.', tag: 'ARCADE' },
+                { id: 'ggteam', name: 'Escalation', desc: 'Eliminate to advance weapons. First to complete wins.', tag: 'ARCADE' },
               ].map((mode) => (
                 <div
                   key={mode.id}
                   className={`gamemode-card ${mode.id}`}
                   onClick={() => {
-                    sendAction('start_matchmaking', { queueId: mode.id });
+                    sendAction('start_matchmaking', { queueId: mode.id, queue_id: mode.id, queueMode: mode.id });
                     setShowGamemodeModal(false);
                     showToast(`Entering queue for ${mode.name}...`);
                   }}
