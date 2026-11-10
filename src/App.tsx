@@ -749,8 +749,10 @@ export function App() {
             </>
           ) : (
             <div className="header-status-pill-subtle">
-              <span className={`status-micro-dot ${isConnected ? 'green' : 'amber'}`}></span>
-              <span className="status-micro-text">{isConnected ? 'v4.0' : 'Connecting'}</span>
+              <span className={`status-micro-dot ${isConnecting ? 'amber' : 'green'}`}></span>
+              <span className="status-micro-text">
+                {isConnecting ? 'Connecting...' : isConnected ? 'Connected' : 'Ready to pair'}
+              </span>
             </div>
           )}
         </div>
@@ -766,7 +768,7 @@ export function App() {
 
             <h2 className="pairing-main-title">Pair with SageBot PC</h2>
             <p className="pairing-main-desc">
-              Enter the 8-character code from your PC’s <strong>Mobile Remote</strong> tab.
+              Enter the 8-character code from your PC’s <strong>Remote</strong> tab.
             </p>
 
             <div className="code-input-container">
@@ -774,7 +776,7 @@ export function App() {
                 <input
                   type="text"
                   maxLength={8}
-                  placeholder="XXXXXXXX"
+                  placeholder="Enter 8-character code"
                   value={pinInput}
                   onChange={(e) => setPinInput(e.target.value.toUpperCase())}
                   className="sleek-pin-input tabular-nums"
@@ -802,7 +804,7 @@ export function App() {
                     <RefreshCw size={15} className="spin" /> Connecting...
                   </span>
                 ) : (
-                  'Connect to PC'
+                  'Connect'
                 )}
               </button>
             </div>
