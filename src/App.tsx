@@ -32,8 +32,21 @@ import type {
   RemoteMessage,
   PregameState,
   AgentInfo,
+  RemoteConfig,
 } from './types';
 import './App.css';
+
+const GAMEMODE_NAMES: Record<string, string> = {
+  competitive: 'Competitive',
+  unrated: 'Unrated',
+  swiftplay: 'Swiftplay',
+  spikerush: 'Spike Rush',
+  hurm: 'Team Deathmatch',
+  deathmatch: 'Deathmatch',
+  ggteam: 'Escalation',
+  onefa: 'Replication',
+  snowball: 'Snowball Fight',
+};
 
 interface NotifPreferences {
   disconnect: boolean;
@@ -122,6 +135,7 @@ export function App() {
 
   // Status & live data verified from PC
   const [status, setStatus] = useState<MobileClientStatus | null>(null);
+  const [remoteConfig, setRemoteConfig] = useState<RemoteConfig | null>(null);
   const [botRunning, setBotRunning] = useState<boolean>(false);
   const [roster, setRoster] = useState<LiveMatchRoster | null>(null);
   const [storefront, setStorefront] = useState<StorefrontData | null>(null);
@@ -129,6 +143,7 @@ export function App() {
   const [logs, setLogs] = useState<string[]>([]);
   const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
   const [isCapturingScreenshot, setIsCapturingScreenshot] = useState<boolean>(false);
+  const lastPcPacketTimeRef = useRef<number>(Date.now());
 
   // Agent Select & Pregame state
   const [pregame, setPregame] = useState<PregameState | null>(null);
@@ -377,10 +392,18 @@ export function App() {
 
         // Only process data packets if already authenticated and connected
         if (!connectedRef.current) return;
+        lastPcPacketTimeRef.current = Date.now();
 
         switch (msg.type) {
+          case 'pc_disconnected':
+            connectedRef.current = false;
+            setIsConnected(false);
+            setConnectionError('SageBot PC has disconnected.');
+            showToast('SageBot PC disconnected.');
+            break;
           case 'sync':
             if (msg.status) setStatus(msg.status);
+            if (msg.config) setRemoteConfig(msg.config);
             if (typeof msg.bot_running === 'boolean') setBotRunning(msg.bot_running);
             if (msg.roster) setRoster(msg.roster);
             if (msg.storefront) {
@@ -463,7 +486,13 @@ export function App() {
           }
           case 'toast':
           case 'action_ack':
-            if (msg.payload) showToast(msg.payload);
+            if (msg.payload) {
+              let text = String(msg.payload);
+              for (const [id, name] of Object.entries(GAMEMODE_NAMES)) {
+                text = text.replace(new RegExp(`\\b${id}\\b`, 'gi'), name);
+              }
+              showToast(text);
+            }
             break;
         }
       },
@@ -508,6 +537,19 @@ export function App() {
         bridgeRef.current.destroy();
       }
     };
+  }, []);
+
+  // Disconnect from mobile if PC heartbeat ceases (10 seconds timeout)
+  useEffect(() => {
+    const watchdog = setInterval(() => {
+      if (connectedRef.current && Date.now() - lastPcPacketTimeRef.current > 10000) {
+        connectedRef.current = false;
+        setIsConnected(false);
+        setConnectionError('SageBot PC disconnected (connection lost).');
+        showToast('SageBot PC disconnected.');
+      }
+    }, 2000);
+    return () => clearInterval(watchdog);
   }, []);
 
   // Auto-reconnect when device wakes from background or network recovers
@@ -1047,6 +1089,39 @@ export function App() {
                 ) : null}
               </div>
 
+              {/* ANTI-AFK METHOD CARD (READ-ONLY) */}
+              <div className="surface-card antiafk-card">
+                <div className="surface-card-header">
+                  <div className="header-left-title">
+                    <Activity size={16} color="#00f0b5" />
+                    <span className="card-heading">Anti-AFK Method</span>
+                  </div>
+                  <span className="antiafk-badge">
+                    {remoteConfig?.anti_afk_mode === 1
+                      ? 'Hold Mode'
+                      : remoteConfig?.anti_afk_mode === 2
+                      ? 'WASD Cycle'
+                      : remoteConfig?.anti_afk_mode === 3
+                      ? 'Custom Macro'
+                      : 'Click Mode'}
+                  </span>
+                </div>
+                <div className="antiafk-details-row">
+                  <div className="antiafk-detail-item">
+                    <span className="antiafk-detail-label">ACTIVE KEY</span>
+                    <span className="antiafk-detail-value">
+                      {remoteConfig?.anti_afk_key || (remoteConfig?.anti_afk_mode === 1 ? 'W' : 'Tab')}
+                    </span>
+                  </div>
+                  <div className="antiafk-detail-item">
+                    <span className="antiafk-detail-label">TIMING PROFILE</span>
+                    <span className="antiafk-detail-value">
+                      {remoteConfig?.anti_afk_slow_mode ? 'Slow (3.7s - 4.2s)' : 'Fast (900ms - 1.3s)'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
               {/* SCREENSHOT CARD */}
               <div className="surface-card">
                 <div className="surface-card-header">
@@ -1395,6 +1470,45 @@ export function App() {
                                   <span className="orig-price-strike tabular-nums">{nm.original_cost_vp}</span>
                                   <span className="skin-cost purple tabular-nums">
                                     {nm.discounted_cost_vp.toLocaleString()} VP
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ACCESSORY STORE */}
+                    {storefront.accessory_offers && storefront.accessory_offers.length > 0 && (
+                      <div className="accessory-store-block" style={{ marginTop: '20px' }}>
+                        <div className="nm-header-row">
+                          <span className="shop-subheading kc-accent">ACCESSORY STORE</span>
+                          {storefront.accessory_seconds_remaining !== undefined && (
+                            <span className="nm-countdown tabular-nums">
+                              {formatCountdownDHMS(storefront.accessory_seconds_remaining)}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="daily-skins-grid">
+                          {storefront.accessory_offers.map((acc, idx) => (
+                            <div key={acc.offer_id || idx} className="daily-skin-tile accessory-tile">
+                              <div className="skin-preview-wrap">
+                                {acc.icon_url ? (
+                                  <img src={acc.icon_url} alt={acc.name} className="skin-thumb" />
+                                ) : (
+                                  <div className="accessory-title-preview">
+                                    <span className="accessory-title-text">"{acc.name}"</span>
+                                  </div>
+                                )}
+                              </div>
+                              <div className="skin-tile-footer">
+                                <span className="skin-title">{acc.name}</span>
+                                <div className="skin-bottom-line">
+                                  <span className="skin-weapon">{acc.item_type}</span>
+                                  <span className="skin-cost kc-price tabular-nums">
+                                    {acc.cost_kc.toLocaleString()} KC
                                   </span>
                                 </div>
                               </div>

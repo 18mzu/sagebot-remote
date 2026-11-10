@@ -121,6 +121,14 @@ export interface PregameState {
   missing_roles: string[];
 }
 
+export interface RemoteConfig {
+  anti_afk_mode?: number;
+  anti_afk_key?: string;
+  anti_afk_slow_mode?: boolean;
+  auto_queue_mode?: string;
+  auto_queue_enabled?: boolean;
+}
+
 export interface AgentInfo {
   id: string;
   name: string;
@@ -146,6 +154,7 @@ export interface RemoteMessage {
   | "pair_denied"
   | "approval_required"
   | "invalid_code"
+  | "pc_disconnected"
   | "force_logout";
   payload?: any;
   message?: string;
@@ -153,6 +162,7 @@ export interface RemoteMessage {
   client_id?: string;
   device_name?: string;
   status?: MobileClientStatus;
+  config?: RemoteConfig;
   bot_running?: boolean;
   roster?: LiveMatchRoster;
   storefront?: StorefrontData;

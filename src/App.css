@@ -2381,3 +2381,78 @@ body {
   color: #fbbf24;
   border-color: rgba(251, 191, 36, 0.4);
 }
+
+/* ANTI-AFK METHOD CARD */
+.antiafk-card {
+  margin-top: 14px;
+}
+
+.antiafk-badge {
+  font-size: 11px;
+  font-weight: 800;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(0, 240, 181, 0.15);
+  color: #00f0b5;
+  border: 1px solid rgba(0, 240, 181, 0.35);
+}
+
+.antiafk-details-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.antiafk-detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+}
+
+.antiafk-detail-label {
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  color: var(--text-tertiary);
+}
+
+.antiafk-detail-value {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* ACCESSORY STORE STYLES */
+.kc-accent {
+  color: #5eead4 !important;
+}
+
+.kc-price {
+  color: #5eead4 !important;
+}
+
+.accessory-tile {
+  border-color: rgba(94, 234, 212, 0.2);
+}
+
+.accessory-title-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  width: 100%;
+  padding: 10px;
+  text-align: center;
+}
+
+.accessory-title-text {
+  font-size: 12px;
+  font-weight: 700;
+  font-style: italic;
+  color: #cbd5e1;
+}
