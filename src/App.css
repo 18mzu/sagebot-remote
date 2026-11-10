@@ -1634,3 +1634,509 @@ body {
 .footer-nav-btn:active {
   transform: scale(0.92);
 }
+
+/* ========================================================= */
+/* PARTY INDICATOR CAPSULES (SageBot PC Parity) */
+/* ========================================================= */
+.party-indicator-capsule {
+  width: 3.5px;
+  height: 28px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  margin-right: 6px;
+  transition: all 0.2s ease;
+}
+
+.party-indicator-capsule-spacer {
+  width: 3.5px;
+  height: 28px;
+  flex-shrink: 0;
+  margin-right: 6px;
+  background: transparent;
+}
+
+.party-indicator-capsule.party-party1 {
+  background: #a855f7;
+  box-shadow: 0 0 8px rgba(168, 85, 247, 0.85);
+}
+
+.party-indicator-capsule.party-party2 {
+  background: #06b6d4;
+  box-shadow: 0 0 8px rgba(6, 182, 212, 0.85);
+}
+
+.party-indicator-capsule.party-party3 {
+  background: #f59e0b;
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.85);
+}
+
+.party-indicator-capsule.party-party4 {
+  background: #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.85);
+}
+
+.party-indicator-capsule.party-party5 {
+  background: #ec4899;
+  box-shadow: 0 0 8px rgba(236, 72, 153, 0.85);
+}
+
+.party-indicator-capsule.party-party6 {
+  background: #8b5cf6;
+  box-shadow: 0 0 8px rgba(139, 92, 246, 0.85);
+}
+
+/* ========================================================= */
+/* SAGEBOT TYPOGRAPHY & FONT COLORS */
+/* ========================================================= */
+.brand-name {
+  background: linear-gradient(135deg, #00f0b5 0%, #38bdf8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+}
+
+.state-badge.in-game {
+  color: #00f0b5 !important;
+  background-color: rgba(0, 240, 181, 0.15) !important;
+  border: 1px solid rgba(0, 240, 181, 0.35);
+  box-shadow: 0 0 10px rgba(0, 240, 181, 0.2);
+}
+
+.state-badge.agent-select {
+  color: #fbbf24 !important;
+  background-color: rgba(251, 191, 36, 0.15) !important;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  box-shadow: 0 0 10px rgba(251, 191, 36, 0.2);
+}
+
+.state-badge.in-lobby {
+  color: #38bdf8 !important;
+  background-color: rgba(56, 189, 248, 0.15) !important;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+}
+
+/* Currency Value Colors */
+.currency-item.vp .currency-val {
+  color: #ff4655;
+}
+
+.currency-item.rp .currency-val {
+  color: #f59e0b;
+}
+
+.currency-item.kc .currency-val {
+  color: #06b6d4;
+}
+
+.currency-item.tokens .currency-val {
+  color: #a855f7;
+}
+
+/* Tracker Team Colors */
+.team-block-title.ally {
+  color: #38bdf8;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+}
+
+.team-block-title.enemy {
+  color: #ff4655;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+}
+
+/* ========================================================= */
+/* AGENT SELECT WORKSPACE & SMART COMP DETECTOR */
+/* ========================================================= */
+.agent-select-card {
+  background: linear-gradient(180deg, rgba(22, 27, 38, 0.95) 0%, rgba(15, 18, 26, 0.95) 100%);
+  border: 1px solid rgba(251, 191, 36, 0.4);
+  border-radius: 14px;
+  padding: 14px;
+  margin-bottom: 16px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), 0 0 16px rgba(251, 191, 36, 0.12);
+}
+
+.agent-select-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.agent-select-pulse-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.15);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  padding: 3px 8px;
+  border-radius: 6px;
+  letter-spacing: 0.5px;
+}
+
+.agent-select-map-info {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+/* SMART COMP DETECTOR BAR */
+.smart-detector-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+
+.smart-detector-label {
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.comp-badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+
+.comp-badge:active {
+  transform: scale(0.95);
+}
+
+.comp-badge.needed {
+  background: rgba(245, 158, 11, 0.18);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.comp-badge.balanced {
+  background: rgba(16, 185, 129, 0.18);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+/* LIVE TEAMMATES SLOTS */
+.teammates-slots-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.teammate-slot {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 6px 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+.teammate-slot.is-self {
+  border-color: rgba(56, 189, 248, 0.5);
+  background: rgba(56, 189, 248, 0.06);
+}
+
+.teammate-slot.is-locked {
+  border-color: rgba(16, 185, 129, 0.4);
+}
+
+.teammate-slot-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+  margin-bottom: 4px;
+}
+
+.teammate-slot-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.teammate-slot-empty {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-tertiary);
+}
+
+.teammate-slot-name {
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.teammate-slot-state {
+  font-size: 8px;
+  font-weight: 800;
+  margin-top: 2px;
+  padding: 1px 3px;
+  border-radius: 3px;
+  letter-spacing: 0.3px;
+}
+
+.teammate-slot-state.locked {
+  background: rgba(16, 185, 129, 0.25);
+  color: #34d399;
+}
+
+.teammate-slot-state.hovering {
+  background: rgba(245, 158, 11, 0.25);
+  color: #fbbf24;
+}
+
+.teammate-slot-state.choosing {
+  color: var(--text-tertiary);
+}
+
+/* ROLE FILTER TABS */
+.agent-role-tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  margin-bottom: 12px;
+  padding-bottom: 2px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.agent-role-tab {
+  padding: 5px 10px;
+  font-size: 10.5px;
+  font-weight: 700;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.agent-role-tab.active {
+  background: rgba(56, 189, 248, 0.18);
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.4);
+}
+
+/* AGENTS ROSTER GRID */
+.agents-roster-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.agent-pick-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 6px 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.agent-pick-card:active {
+  transform: scale(0.94);
+}
+
+.agent-pick-card.locked-by-teammate {
+  opacity: 0.35;
+  filter: grayscale(0.85);
+  pointer-events: none;
+}
+
+.agent-pick-card.locked-by-self {
+  border-color: #10b981;
+  background: rgba(16, 185, 129, 0.12);
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.3);
+}
+
+.agent-card-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.4);
+  margin-bottom: 4px;
+}
+
+.agent-card-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.agent-card-name {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-align: center;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-card-role-tag {
+  font-size: 8.5px;
+  font-weight: 700;
+  margin-top: 1px;
+}
+
+.agent-card-role-tag.duelist { color: #ff4655; }
+.agent-card-role-tag.initiator { color: #38bdf8; }
+.agent-card-role-tag.controller { color: #a855f7; }
+.agent-card-role-tag.sentinel { color: #10b981; }
+
+.agent-taken-pill {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  font-size: 7.5px;
+  font-weight: 800;
+  background: rgba(244, 63, 94, 0.85);
+  color: #ffffff;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.agent-self-pill {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  font-size: 7.5px;
+  font-weight: 800;
+  background: #10b981;
+  color: #000000;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+/* VERIFY LOCK CONFIRMATION MODAL */
+.agent-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 100;
+}
+
+.agent-confirm-sheet {
+  background: linear-gradient(180deg, #161b26 0%, #0f121a 100%);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 18px;
+  width: 100%;
+  max-width: 320px;
+  padding: 22px 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6);
+}
+
+.agent-confirm-portrait {
+  width: 72px;
+  height: 72px;
+  border-radius: 16px;
+  overflow: hidden;
+  margin-bottom: 12px;
+  background: rgba(0, 0, 0, 0.5);
+  border: 2px solid rgba(255, 255, 255, 0.1);
+}
+
+.agent-confirm-portrait img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.agent-confirm-name {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.agent-confirm-role {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 12px;
+}
+
+.agent-confirm-prompt {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  margin-bottom: 18px;
+}
+
+.agent-confirm-actions {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+}
+
+.agent-confirm-actions button {
+  flex: 1;
+  padding: 11px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.btn-confirm-lock {
+  background: #ff4655;
+  color: #ffffff;
+  box-shadow: 0 0 14px rgba(255, 70, 85, 0.5);
+}
+
+.btn-cancel-lock {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
+}

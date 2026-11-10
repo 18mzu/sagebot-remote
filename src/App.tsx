@@ -18,6 +18,7 @@ import {
   Radio,
 } from 'lucide-react';
 import { RemoteBridge } from './remoteBridge';
+import { ALL_VALORANT_AGENTS } from './data/agents';
 import type {
   MobileClientStatus,
   LiveMatchRoster,
@@ -25,6 +26,8 @@ import type {
   StorefrontData,
   RemoteNotification,
   RemoteMessage,
+  PregameState,
+  AgentInfo,
 } from './types';
 import './App.css';
 
@@ -58,6 +61,26 @@ const formatCountdownDHMS = (totalSecs?: number): string => {
   const mins = Math.floor((totalSecs % 3600) / 60);
   const secs = Math.floor(totalSecs % 60);
   return `${days.toString().padStart(2, '0')}:${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+};
+
+const getPartyClass = (tag?: string): string => {
+  if (!tag) return '';
+  return `party-${tag.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+};
+
+const getRankColor = (rankName?: string): string => {
+  if (!rankName) return '#94a3b8';
+  const r = rankName.toLowerCase();
+  if (r.includes('radiant')) return '#fef08a';
+  if (r.includes('immortal')) return '#f43f5e';
+  if (r.includes('ascendant')) return '#34d399';
+  if (r.includes('diamond')) return '#c084fc';
+  if (r.includes('platinum')) return '#22d3ee';
+  if (r.includes('gold')) return '#fbbf24';
+  if (r.includes('silver')) return '#cbd5e1';
+  if (r.includes('bronze')) return '#b45309';
+  if (r.includes('iron')) return '#94a3b8';
+  return '#94a3b8';
 };
 
 export function App() {
@@ -102,6 +125,12 @@ export function App() {
   const [logs, setLogs] = useState<string[]>([]);
   const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
   const [isCapturingScreenshot, setIsCapturingScreenshot] = useState<boolean>(false);
+
+  // Agent Select & Pregame state
+  const [pregame, setPregame] = useState<PregameState | null>(null);
+  const [selectedRoleFilter, setSelectedRoleFilter] = useState<string>('ALL');
+  const [pendingAgentLock, setPendingAgentLock] = useState<AgentInfo | null>(null);
+  const [isLocking, setIsLocking] = useState<boolean>(false);
 
   // Notifications & Modals
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -352,10 +381,25 @@ export function App() {
                 setDailySeconds(msg.storefront.daily_seconds_remaining);
               }
             }
+            if (msg.pregame !== undefined) setPregame(msg.pregame);
             if (msg.logs) setLogs(msg.logs);
             break;
           case 'status':
             setStatus(msg.payload);
+            break;
+          case 'pregame':
+            setPregame(msg.payload || null);
+            if (msg.payload && activeTab !== 'status') {
+              setActiveTab('status');
+            }
+            break;
+          case 'lock_result':
+            setIsLocking(false);
+            if (msg.success) {
+              showToast(msg.message || 'Agent locked successfully!');
+            } else {
+              showToast(`Lock failed: ${msg.message || 'Error'}`);
+            }
             break;
           case 'roster':
             setRoster(msg.payload || null);
@@ -375,11 +419,19 @@ export function App() {
             setScreenshotUrl(msg.payload);
             setIsCapturingScreenshot(false);
             break;
-          case 'notification':
-            if (msg.payload) {
-              handleIncomingNotification(msg.payload as RemoteNotification);
+          case 'notification': {
+            const notifData = (msg.payload || msg) as any;
+            if (notifData.eventType === 'match_found') {
+              setActiveTab('status');
             }
+            handleIncomingNotification({
+              title: notifData.title || 'SageBot',
+              message: notifData.message || notifData.body || 'Match Found!',
+              eventType: notifData.eventType || 'status',
+              timestamp: Date.now(),
+            });
             break;
+          }
           case 'toast':
           case 'action_ack':
             if (msg.payload) showToast(msg.payload);
@@ -588,7 +640,7 @@ export function App() {
         <div className="header-currencies-row">
           {status?.wallet ? (
             <>
-              <div className="header-currency-chip" title="VALORANT Points">
+              <div className="header-currency-chip vp" title="VALORANT Points">
                 <img
                   src="https://media.valorant-api.com/currencies/85ad13f7-3d1b-5128-9eb2-7cd8ee0b5741/displayicon.png"
                   alt="VP"
@@ -596,7 +648,7 @@ export function App() {
                 />
                 <span className="header-currency-val tabular-nums">{status.wallet.vp.toLocaleString()}</span>
               </div>
-              <div className="header-currency-chip" title="Radianite Points">
+              <div className="header-currency-chip rp" title="Radianite Points">
                 <img
                   src="https://media.valorant-api.com/currencies/e59aa87c-4cbf-517a-5983-6e81511be9b7/displayicon.png"
                   alt="RP"
@@ -604,7 +656,7 @@ export function App() {
                 />
                 <span className="header-currency-val tabular-nums">{status.wallet.rp.toLocaleString()}</span>
               </div>
-              <div className="header-currency-chip" title="Kingdom Credits">
+              <div className="header-currency-chip kc" title="Kingdom Credits">
                 <img
                   src="https://media.valorant-api.com/currencies/85ca954a-41f2-ce94-9b45-8ca3dd39a00d/displayicon.png"
                   alt="KC"
@@ -613,7 +665,7 @@ export function App() {
                 <span className="header-currency-val tabular-nums">{status.wallet.kc.toLocaleString()}</span>
               </div>
               {typeof status.wallet.agent_tokens === 'number' && (
-                <div className="header-currency-chip" title="Free Agent Tokens">
+                <div className="header-currency-chip tokens" title="Free Agent Tokens">
                   <img
                     src="https://media.valorant-api.com/currencies/f08d4ae3-939c-4576-ab26-09ce1f23bb37/displayicon.png"
                     alt="Tokens"
@@ -710,9 +762,161 @@ export function App() {
       {/* CONNECTED MAIN VIEW */}
       {isConnected && (
         <main className="mobile-body">
-          {/* TAB 1: STATUS (INGAME, SCREENSHOT, MINIMAL LOGS) */}
+          {/* TAB 1: STATUS (INGAME, SCREENSHOT, MINIMAL LOGS, AGENT SELECT) */}
           {activeTab === 'status' && (
             <div className="tab-pane">
+              {/* AGENT SELECT LIVE WORKSPACE */}
+              {(pregame !== null || status?.match_state === 'Agent Select') && (
+                <div className="agent-select-card">
+                  <div className="agent-select-header">
+                    <div className="agent-select-title-wrap">
+                      <span className="agent-select-pulse-tag">
+                        <Radio size={12} className="pulse-icon" />
+                        AGENT SELECT
+                      </span>
+                    </div>
+                    <span className="agent-select-map-info">
+                      {pregame?.map_name || status?.map_name || 'VALORANT'} {pregame?.gamemode ? `• ${pregame.gamemode}` : ''}
+                    </span>
+                  </div>
+
+                  {/* SMART COMP DETECTOR */}
+                  <div className="smart-detector-bar">
+                    <span className="smart-detector-label">Comp Check:</span>
+                    {pregame?.missing_roles && pregame.missing_roles.length > 0 ? (
+                      pregame.missing_roles.map((role) => (
+                        <span
+                          key={role}
+                          className="comp-badge needed"
+                          onClick={() => setSelectedRoleFilter(role)}
+                          title={`Filter to ${role}s`}
+                        >
+                          ⚠️ Need {role}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="comp-badge balanced">
+                        ✅ Balanced Comp
+                      </span>
+                    )}
+                  </div>
+
+                  {/* LIVE TEAMMATES ROSTER (5 SLOTS) */}
+                  <div className="teammates-slots-row">
+                    {Array.from({ length: 5 }).map((_, idx) => {
+                      const t = pregame?.teammates?.[idx];
+                      if (!t) {
+                        return (
+                          <div key={idx} className="teammate-slot">
+                            <div className="teammate-slot-avatar">
+                              <span className="teammate-slot-empty">?</span>
+                            </div>
+                            <span className="teammate-slot-name">Slot {idx + 1}</span>
+                            <span className="teammate-slot-state choosing">Waiting</span>
+                          </div>
+                        );
+                      }
+                      return (
+                        <div
+                          key={t.puuid || idx}
+                          className={`teammate-slot ${t.is_self ? 'is-self' : ''} ${t.is_locked ? 'is-locked' : ''}`}
+                        >
+                          <div className="teammate-slot-avatar">
+                            {t.character_id ? (
+                              <img
+                                src={`https://media.valorant-api.com/agents/${t.character_id}/displayicon.png`}
+                                alt={t.character_name}
+                                className="teammate-slot-img"
+                                onError={(e) => {
+                                  (e.currentTarget as HTMLImageElement).style.display = 'none';
+                                }}
+                              />
+                            ) : (
+                              <span className="teammate-slot-empty">?</span>
+                            )}
+                          </div>
+                          <span className="teammate-slot-name">
+                            {t.is_self ? 'YOU' : t.character_name || `Ally ${idx + 1}`}
+                          </span>
+                          <span
+                            className={`teammate-slot-state ${
+                              t.is_locked ? 'locked' : t.character_id ? 'hovering' : 'choosing'
+                            }`}
+                          >
+                            {t.is_locked ? 'LOCKED' : t.character_id ? 'HOVER' : 'CHOOSING'}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* ROLE FILTER TABS */}
+                  <div className="agent-role-tabs">
+                    {['ALL', 'Duelist', 'Initiator', 'Controller', 'Sentinel'].map((role) => (
+                      <button
+                        key={role}
+                        type="button"
+                        className={`agent-role-tab ${selectedRoleFilter === role ? 'active' : ''}`}
+                        onClick={() => setSelectedRoleFilter(role)}
+                      >
+                        {role.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* AGENTS ROSTER GRID */}
+                  <div className="agents-roster-grid">
+                    {ALL_VALORANT_AGENTS
+                      .filter((a) => selectedRoleFilter === 'ALL' || a.role.toLowerCase() === selectedRoleFilter.toLowerCase())
+                      .map((agent) => {
+                        const isLockedByTeammate = Boolean(
+                          pregame?.teammates?.some(
+                            (t) => !t.is_self && t.is_locked && t.character_id.toLowerCase() === agent.id.toLowerCase()
+                          )
+                        );
+                        const isLockedBySelf = Boolean(
+                          pregame?.locked_agent_id?.toLowerCase() === agent.id.toLowerCase() ||
+                          (status?.match_state === 'Agent Select' && status?.current_agent?.toLowerCase() === agent.name.toLowerCase())
+                        );
+
+                        return (
+                          <div
+                            key={agent.id}
+                            className={`agent-pick-card ${isLockedByTeammate ? 'locked-by-teammate' : ''} ${
+                              isLockedBySelf ? 'locked-by-self' : ''
+                            }`}
+                            onClick={() => {
+                              if (!isLockedByTeammate && !isLockedBySelf && !isLocking) {
+                                setPendingAgentLock(agent);
+                              }
+                            }}
+                          >
+                            <div className="agent-card-avatar">
+                              <img
+                                src={`https://media.valorant-api.com/agents/${agent.id}/displayicon.png`}
+                                alt={agent.name}
+                                className="agent-card-img"
+                                loading="lazy"
+                              />
+                            </div>
+                            <span className="agent-card-name">{agent.name}</span>
+                            <span className={`agent-card-role-tag ${agent.role.toLowerCase()}`}>
+                              {agent.role}
+                            </span>
+
+                            {isLockedByTeammate && (
+                              <span className="agent-taken-pill">TAKEN</span>
+                            )}
+                            {isLockedBySelf && (
+                              <span className="agent-self-pill">YOU</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+
               {/* PRIMARY LIVE MATCH CARD */}
               <div className="live-match-card">
                 <div className="card-top-row">
@@ -870,6 +1074,11 @@ export function App() {
                           {allyTeam.map((player: TrackedPlayer) => (
                             <div key={player.puuid || player.name} className="roster-player-card ally">
                               <div className="player-agent-col">
+                                {player.party_tag ? (
+                                  <div className={`party-indicator-capsule ${getPartyClass(player.party_tag)}`} />
+                                ) : (
+                                  <div className="party-indicator-capsule-spacer" />
+                                )}
                                 {player.agent_id ? (
                                   <img
                                     src={`https://media.valorant-api.com/agents/${player.agent_id}/displayicon.png`}
@@ -890,16 +1099,36 @@ export function App() {
                                 <div className="player-name-row">
                                   <span className="player-display-name">{player.name}</span>
                                   {player.is_self && <span className="self-tag">YOU</span>}
-                                  {player.party_tag && <span className="party-tag">{player.party_tag}</span>}
                                 </div>
                                 <span className="player-agent-name">{player.agent_name || 'Agent'}</span>
                               </div>
 
                               <div className="player-stats-col">
-                                <span className="player-rank-title">{player.current_rank_name || 'Unranked'}</span>
+                                <span className="player-rank-title" style={{ color: getRankColor(player.current_rank_name) }}>
+                                  {player.current_rank_name || 'Unranked'}
+                                </span>
                                 <div className="stats-sub-row tabular-nums">
-                                  <span className="player-wr">{player.win_rate ? `${Math.round(player.win_rate)}%` : '-'}</span>
-                                  {player.kd_ratio && <span className="player-kd">{player.kd_ratio.toFixed(2)} KD</span>}
+                                  <span
+                                    className="player-wr"
+                                    style={{
+                                      color:
+                                        player.win_rate >= 50
+                                          ? '#10b981'
+                                          : player.win_rate >= 45
+                                          ? '#f59e0b'
+                                          : '#f43f5e',
+                                    }}
+                                  >
+                                    {player.win_rate ? `${Math.round(player.win_rate)}%` : '-'}
+                                  </span>
+                                  {player.kd_ratio && (
+                                    <span
+                                      className="player-kd"
+                                      style={{ color: player.kd_ratio >= 1.0 ? '#38bdf8' : '#94a3b8' }}
+                                    >
+                                      {player.kd_ratio.toFixed(2)} KD
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -916,6 +1145,11 @@ export function App() {
                           {enemyTeam.map((player: TrackedPlayer) => (
                             <div key={player.puuid || player.name} className="roster-player-card enemy">
                               <div className="player-agent-col">
+                                {player.party_tag ? (
+                                  <div className={`party-indicator-capsule ${getPartyClass(player.party_tag)}`} />
+                                ) : (
+                                  <div className="party-indicator-capsule-spacer" />
+                                )}
                                 {player.agent_id ? (
                                   <img
                                     src={`https://media.valorant-api.com/agents/${player.agent_id}/displayicon.png`}
@@ -935,16 +1169,36 @@ export function App() {
                               <div className="player-info-col">
                                 <div className="player-name-row">
                                   <span className="player-display-name">{player.name}</span>
-                                  {player.party_tag && <span className="party-tag">{player.party_tag}</span>}
                                 </div>
                                 <span className="player-agent-name">{player.agent_name || 'Agent'}</span>
                               </div>
 
                               <div className="player-stats-col">
-                                <span className="player-rank-title">{player.current_rank_name || 'Unranked'}</span>
+                                <span className="player-rank-title" style={{ color: getRankColor(player.current_rank_name) }}>
+                                  {player.current_rank_name || 'Unranked'}
+                                </span>
                                 <div className="stats-sub-row tabular-nums">
-                                  <span className="player-wr">{player.win_rate ? `${Math.round(player.win_rate)}%` : '-'}</span>
-                                  {player.kd_ratio && <span className="player-kd">{player.kd_ratio.toFixed(2)} KD</span>}
+                                  <span
+                                    className="player-wr"
+                                    style={{
+                                      color:
+                                        player.win_rate >= 50
+                                          ? '#10b981'
+                                          : player.win_rate >= 45
+                                          ? '#f59e0b'
+                                          : '#f43f5e',
+                                    }}
+                                  >
+                                    {player.win_rate ? `${Math.round(player.win_rate)}%` : '-'}
+                                  </span>
+                                  {player.kd_ratio && (
+                                    <span
+                                      className="player-kd"
+                                      style={{ color: player.kd_ratio >= 1.0 ? '#38bdf8' : '#94a3b8' }}
+                                    >
+                                      {player.kd_ratio.toFixed(2)} KD
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -1210,6 +1464,68 @@ export function App() {
             </div>
           )}
         </main>
+      )}
+
+      {/* VERIFY LOCK CONFIRMATION MODAL */}
+      {pendingAgentLock && (
+        <div className="agent-confirm-backdrop" onClick={() => !isLocking && setPendingAgentLock(null)}>
+          <div className="agent-confirm-sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="agent-confirm-portrait">
+              <img
+                src={`https://media.valorant-api.com/agents/${pendingAgentLock.id}/displayicon.png`}
+                alt={pendingAgentLock.name}
+              />
+            </div>
+            <h3 className="agent-confirm-name">{pendingAgentLock.name}</h3>
+            <span
+              className={`agent-confirm-role ${pendingAgentLock.role.toLowerCase()}`}
+              style={{
+                color:
+                  pendingAgentLock.role === 'Duelist'
+                    ? '#ff4655'
+                    : pendingAgentLock.role === 'Initiator'
+                    ? '#38bdf8'
+                    : pendingAgentLock.role === 'Controller'
+                    ? '#a855f7'
+                    : '#10b981',
+              }}
+            >
+              {pendingAgentLock.role}
+            </span>
+            <p className="agent-confirm-prompt">
+              Do you wish to lock in <strong>{pendingAgentLock.name}</strong>?
+              <br />
+              <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                This overrides PC auto-queue and locks immediately.
+              </span>
+            </p>
+            <div className="agent-confirm-actions">
+              <button
+                type="button"
+                className="btn-cancel-lock"
+                disabled={isLocking}
+                onClick={() => setPendingAgentLock(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn-confirm-lock"
+                disabled={isLocking}
+                onClick={() => {
+                  setIsLocking(true);
+                  sendAction('remote_lock_agent', {
+                    agentId: pendingAgentLock.id,
+                    agentName: pendingAgentLock.name,
+                  });
+                  setPendingAgentLock(null);
+                }}
+              >
+                {isLocking ? 'Locking...' : `Lock In ${pendingAgentLock.name}`}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* FOOTER NAVIGATION BAR: EXACTLY 4 TABS */}

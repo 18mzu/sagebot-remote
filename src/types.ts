@@ -101,6 +101,33 @@ export interface RemoteNotification {
   timestamp: number;
 }
 
+export interface PregameTeammate {
+  puuid: string;
+  character_id: string;
+  character_name: string;
+  role: string;
+  is_locked: boolean;
+  is_self: boolean;
+}
+
+export interface PregameState {
+  match_id: string;
+  map_name: string;
+  map_id: string;
+  gamemode: string;
+  teammates: PregameTeammate[];
+  locked_agent_id?: string;
+  missing_roles: string[];
+}
+
+export interface AgentInfo {
+  id: string;
+  name: string;
+  role: string; // "Duelist" | "Initiator" | "Controller" | "Sentinel"
+  color: string;
+  is_starter?: boolean;
+}
+
 export interface RemoteMessage {
   type:
   | "sync"
@@ -112,6 +139,8 @@ export interface RemoteMessage {
   | "action_ack"
   | "storefront"
   | "notification"
+  | "pregame"
+  | "lock_result"
   | "pair_approved"
   | "pair_denied"
   | "approval_required"
@@ -126,5 +155,8 @@ export interface RemoteMessage {
   bot_running?: boolean;
   roster?: LiveMatchRoster;
   storefront?: StorefrontData;
+  pregame?: PregameState;
+  agentId?: string;
+  success?: boolean;
   logs?: string[];
 }
