@@ -131,6 +131,9 @@ export function App() {
   const [selectedRoleFilter, setSelectedRoleFilter] = useState<string>('ALL');
   const [pendingAgentLock, setPendingAgentLock] = useState<AgentInfo | null>(null);
   const [isLocking, setIsLocking] = useState<boolean>(false);
+  const [showMatchWarningModal, setShowMatchWarningModal] = useState<boolean>(false);
+  const [manualAgentSelectActive, setManualAgentSelectActive] = useState<boolean>(false);
+  const handledPregameMatchIdRef = useRef<string>('');
 
   // Notifications & Modals
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -387,12 +390,25 @@ export function App() {
           case 'status':
             setStatus(msg.payload);
             break;
-          case 'pregame':
-            setPregame(msg.payload || null);
-            if (msg.payload && activeTab !== 'status') {
-              setActiveTab('status');
+          case 'pregame': {
+            const pg = msg.payload as PregameState | null;
+            setPregame(pg);
+            if (pg && pg.match_id) {
+              if (handledPregameMatchIdRef.current !== pg.match_id) {
+                handledPregameMatchIdRef.current = pg.match_id;
+                setShowMatchWarningModal(true);
+                triggerNativeNotification(
+                  'Match found! Open SageBot to manually choose your agent.',
+                  'match_found'
+                );
+              }
+            } else {
+              handledPregameMatchIdRef.current = '';
+              setShowMatchWarningModal(false);
+              setManualAgentSelectActive(false);
             }
             break;
+          }
           case 'lock_result':
             setIsLocking(false);
             if (msg.success) {
@@ -421,15 +437,23 @@ export function App() {
             break;
           case 'notification': {
             const notifData = (msg.payload || msg) as any;
-            if (notifData.eventType === 'match_found') {
-              setActiveTab('status');
+            const isMatchFound =
+              notifData.eventType === 'match_found' ||
+              String(notifData.message || '').toLowerCase().includes('match found');
+            if (isMatchFound) {
+              setShowMatchWarningModal(true);
+              triggerNativeNotification(
+                'Match found! Open SageBot to manually choose your agent.',
+                'match_found'
+              );
+            } else {
+              handleIncomingNotification({
+                title: notifData.title || 'SageBot',
+                message: notifData.message || notifData.body || 'Notification',
+                eventType: notifData.eventType || 'status',
+                timestamp: Date.now(),
+              });
             }
-            handleIncomingNotification({
-              title: notifData.title || 'SageBot',
-              message: notifData.message || notifData.body || 'Match Found!',
-              eventType: notifData.eventType || 'status',
-              timestamp: Date.now(),
-            });
             break;
           }
           case 'toast':
@@ -765,8 +789,24 @@ export function App() {
           {/* TAB 1: STATUS (INGAME, SCREENSHOT, MINIMAL LOGS, AGENT SELECT) */}
           {activeTab === 'status' && (
             <div className="tab-pane">
-              {/* AGENT SELECT LIVE WORKSPACE */}
-              {(pregame !== null || status?.match_state === 'Agent Select') && (
+              {/* IF AGENT SELECT IS IN PROGRESS BUT USER HAS NOT ACTIVATED MANUAL SELECT */}
+              {!manualAgentSelectActive && (pregame !== null || status?.match_state === 'Agent Select') && (
+                <div className="manual-select-toggle-banner">
+                  <span className="manual-select-toggle-text">
+                    ⚡ Agent Select in progress (PC Auto Active)
+                  </span>
+                  <button
+                    type="button"
+                    className="btn-toggle-manual-agent"
+                    onClick={() => setManualAgentSelectActive(true)}
+                  >
+                    Choose Agent
+                  </button>
+                </div>
+              )}
+
+              {/* AGENT SELECT LIVE WORKSPACE (ACTIVE ONLY WHEN USER CONFIRMS YES) */}
+              {manualAgentSelectActive && (pregame !== null || status?.match_state === 'Agent Select') && (
                 <div className="agent-select-card">
                   <div className="agent-select-header">
                     <div className="agent-select-title-wrap">
@@ -835,13 +875,12 @@ export function App() {
                               <span className="teammate-slot-empty">?</span>
                             )}
                           </div>
-                          <span className="teammate-slot-name">
-                            {t.is_self ? 'YOU' : t.character_name || `Ally ${idx + 1}`}
+                          <span className="teammate-slot-name" title={t.player_name || t.character_name}>
+                            {t.is_self ? 'YOU' : t.player_name ? t.player_name.split('#')[0] : t.character_name || `Ally ${idx + 1}`}
                           </span>
                           <span
-                            className={`teammate-slot-state ${
-                              t.is_locked ? 'locked' : t.character_id ? 'hovering' : 'choosing'
-                            }`}
+                            className={`teammate-slot-state ${t.is_locked ? 'locked' : t.character_id ? 'hovering' : 'choosing'
+                              }`}
                           >
                             {t.is_locked ? 'LOCKED' : t.character_id ? 'HOVER' : 'CHOOSING'}
                           </span>
@@ -882,9 +921,8 @@ export function App() {
                         return (
                           <div
                             key={agent.id}
-                            className={`agent-pick-card ${isLockedByTeammate ? 'locked-by-teammate' : ''} ${
-                              isLockedBySelf ? 'locked-by-self' : ''
-                            }`}
+                            className={`agent-pick-card ${isLockedByTeammate ? 'locked-by-teammate' : ''} ${isLockedBySelf ? 'locked-by-self' : ''
+                              }`}
                             onClick={() => {
                               if (!isLockedByTeammate && !isLockedBySelf && !isLocking) {
                                 setPendingAgentLock(agent);
@@ -1115,8 +1153,8 @@ export function App() {
                                         player.win_rate >= 50
                                           ? '#10b981'
                                           : player.win_rate >= 45
-                                          ? '#f59e0b'
-                                          : '#f43f5e',
+                                            ? '#f59e0b'
+                                            : '#f43f5e',
                                     }}
                                   >
                                     {player.win_rate ? `${Math.round(player.win_rate)}%` : '-'}
@@ -1185,8 +1223,8 @@ export function App() {
                                         player.win_rate >= 50
                                           ? '#10b981'
                                           : player.win_rate >= 45
-                                          ? '#f59e0b'
-                                          : '#f43f5e',
+                                            ? '#f59e0b'
+                                            : '#f43f5e',
                                     }}
                                   >
                                     {player.win_rate ? `${Math.round(player.win_rate)}%` : '-'}
@@ -1484,10 +1522,10 @@ export function App() {
                   pendingAgentLock.role === 'Duelist'
                     ? '#ff4655'
                     : pendingAgentLock.role === 'Initiator'
-                    ? '#38bdf8'
-                    : pendingAgentLock.role === 'Controller'
-                    ? '#a855f7'
-                    : '#10b981',
+                      ? '#38bdf8'
+                      : pendingAgentLock.role === 'Controller'
+                        ? '#a855f7'
+                        : '#10b981',
               }}
             >
               {pendingAgentLock.role}
@@ -1522,6 +1560,47 @@ export function App() {
                 }}
               >
                 {isLocking ? 'Locking...' : `Lock In ${pendingAgentLock.name}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MATCH FOUND WARNING MODAL (MANUAL SELECTION PROMPT) */}
+      {showMatchWarningModal && (
+        <div className="agent-confirm-backdrop">
+          <div className="agent-confirm-sheet warning-sheet">
+            <div className="warning-icon-badge">
+              <AlertTriangle size={30} color="#fbbf24" />
+            </div>
+            <h3 className="warning-modal-title">Match Found!</h3>
+            <p className="warning-modal-desc">
+              Do you want to manually choose your agent from your phone?
+            </p>
+            <span className="warning-modal-sub">
+              If not, SageBot PC will automatically lock agents according to your PC settings.
+            </span>
+            <div className="warning-modal-actions">
+              <button
+                type="button"
+                className="btn-choose-manual"
+                onClick={() => {
+                  setShowMatchWarningModal(false);
+                  setManualAgentSelectActive(true);
+                  setActiveTab('status');
+                }}
+              >
+                Yes, Choose Agent
+              </button>
+              <button
+                type="button"
+                className="btn-keep-pc-settings"
+                onClick={() => {
+                  setShowMatchWarningModal(false);
+                  setManualAgentSelectActive(false);
+                }}
+              >
+                No, Keep PC Settings
               </button>
             </div>
           </div>

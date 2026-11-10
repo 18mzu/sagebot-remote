@@ -103,6 +103,7 @@ export interface RemoteNotification {
 
 export interface PregameTeammate {
   puuid: string;
+  player_name?: string;
   character_id: string;
   character_name: string;
   role: string;
