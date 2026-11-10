@@ -567,9 +567,20 @@ body {
 }
 
 @keyframes pulse-ring {
-  0% { transform: scale(0.95); opacity: 0.8; }
-  50% { transform: scale(1.15); opacity: 1; }
-  100% { transform: scale(0.95); opacity: 0.8; }
+  0% {
+    transform: scale(0.95);
+    opacity: 0.8;
+  }
+
+  50% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+
+  100% {
+    transform: scale(0.95);
+    opacity: 0.8;
+  }
 }
 
 .pending-approval-text {
@@ -1487,12 +1498,12 @@ body {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
 }
 
-.switch-label input:checked + .switch-slider {
+.switch-label input:checked+.switch-slider {
   background-color: var(--accent-cyan);
   border-color: var(--accent-cyan);
 }
 
-.switch-label input:checked + .switch-slider:before {
+.switch-label input:checked+.switch-slider:before {
   transform: translateX(20px);
 }
 
@@ -2028,10 +2039,21 @@ body {
   margin-top: 1px;
 }
 
-.agent-card-role-tag.duelist { color: #ff4655; }
-.agent-card-role-tag.initiator { color: #38bdf8; }
-.agent-card-role-tag.controller { color: #a855f7; }
-.agent-card-role-tag.sentinel { color: #10b981; }
+.agent-card-role-tag.duelist {
+  color: #ff4655;
+}
+
+.agent-card-role-tag.initiator {
+  color: #38bdf8;
+}
+
+.agent-card-role-tag.controller {
+  color: #a855f7;
+}
+
+.agent-card-role-tag.sentinel {
+  color: #10b981;
+}
 
 .agent-taken-pill {
   position: absolute;
@@ -2282,9 +2304,17 @@ body {
 }
 
 @keyframes pulseQueue {
-  0% { box-shadow: 0 0 0 0 rgba(244, 63, 94, 0.7); }
-  70% { box-shadow: 0 0 0 10px rgba(244, 63, 94, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(244, 63, 94, 0); }
+  0% {
+    box-shadow: 0 0 0 0 rgba(244, 63, 94, 0.7);
+  }
+
+  70% {
+    box-shadow: 0 0 0 10px rgba(244, 63, 94, 0);
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 rgba(244, 63, 94, 0);
+  }
 }
 
 /* GAMEMODES MODAL SHEET */

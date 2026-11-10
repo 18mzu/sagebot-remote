@@ -55,28 +55,31 @@ function buildConnectPacket(clientId: string): Uint8Array {
   return out;
 }
 
-function buildSubscribePacket(topic: string, packetId = 1): Uint8Array {
-  const pid = new Uint8Array([(packetId >> 8) & 0xff, packetId & 0xff]);
-  const tb = encodeMqttString(topic);
-  const qos = new Uint8Array([0x00]);
-  const remLen = pid.length + tb.length + qos.length;
+function buildSubscribePacket(topics: string[], packetId = 1): Uint8Array {
+  const parts: Uint8Array[] = [new Uint8Array([(packetId >> 8) & 0xff, packetId & 0xff])];
+  for (const topic of topics) {
+    parts.push(encodeMqttString(topic), new Uint8Array([0x00]));
+  }
+  const remLen = parts.reduce((n, p) => n + p.length, 0);
   const varLen = encodeVarLen(remLen);
   const out = new Uint8Array(1 + varLen.length + remLen);
   out[0] = 0x82;
   out.set(varLen, 1);
-  out.set(pid, 1 + varLen.length);
-  out.set(tb, 1 + varLen.length + pid.length);
-  out.set(qos, 1 + varLen.length + pid.length + tb.length);
+  let offset = 1 + varLen.length;
+  for (const p of parts) {
+    out.set(p, offset);
+    offset += p.length;
+  }
   return out;
 }
 
-function buildPublishPacket(topic: string, payloadStr: string, retain = false): Uint8Array {
+function buildPublishPacket(topic: string, payloadStr: string): Uint8Array {
   const tb = encodeMqttString(topic);
   const pb = encodeUtf8(payloadStr);
   const remLen = tb.length + pb.length;
   const varLen = encodeVarLen(remLen);
   const out = new Uint8Array(1 + varLen.length + remLen);
-  out[0] = retain ? 0x31 : 0x30;
+  out[0] = 0x30;
   out.set(varLen, 1);
   out.set(tb, 1 + varLen.length);
   out.set(pb, 1 + varLen.length + tb.length);
@@ -91,8 +94,7 @@ function randomId(prefix: string): string {
 
 export interface BridgeCallbacks {
   onBrokerReady?: () => void;
-  onMessage: (data: any) => void;
-  onError?: (err: string) => void;
+  onMessage: (topic: string, data: any) => void;
 }
 
 interface ChunkBuffer {
@@ -102,9 +104,12 @@ interface ChunkBuffer {
   createdAt: number;
 }
 
+/**
+ * Pure transport: subscribes to a fixed set of topics and publishes JSON.
+ * It knows nothing about pairing or encryption (see secureChannel.ts).
+ */
 export class RemoteBridge {
-  private subTopic: string;
-  private pubTopic: string;
+  private subTopics: string[];
   private callbacks: BridgeCallbacks;
   private sockets: WebSocket[] = [];
   private readyCount = 0;
@@ -115,20 +120,8 @@ export class RemoteBridge {
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectTimers: ReturnType<typeof setTimeout>[] = [];
 
-  constructor(
-    roomCode: string,
-    role: "pc" | "mobile",
-    callbacks: BridgeCallbacks
-  ) {
-    const cleanRoom = roomCode.trim().toLowerCase();
-    this.subTopic =
-      role === "pc"
-        ? `sagebot/v2/${cleanRoom}/to_pc`
-        : `sagebot/v2/${cleanRoom}/to_mobile`;
-    this.pubTopic =
-      role === "pc"
-        ? `sagebot/v2/${cleanRoom}/to_mobile`
-        : `sagebot/v2/${cleanRoom}/to_pc`;
+  constructor(subTopics: string[], callbacks: BridgeCallbacks) {
+    this.subTopics = subTopics;
     this.callbacks = callbacks;
 
     this.connectAll();
@@ -203,7 +196,7 @@ export class RemoteBridge {
 
         if (packetType === 0x20) {
           // CONNACK -> Subscribe immediately
-          ws.send(buildSubscribePacket(this.subTopic, idx + 1).buffer as ArrayBuffer);
+          ws.send(buildSubscribePacket(this.subTopics, idx + 1).buffer as ArrayBuffer);
         } else if (packetType === 0x90) {
           // SUBACK -> Ready!
           if (!isBrokerReady) {
@@ -217,6 +210,7 @@ export class RemoteBridge {
           // PUBLISH
           let pIdx = i;
           const topicLen = (rxBuffer[pIdx] << 8) | rxBuffer[pIdx + 1];
+          const topic = decodeUtf8(rxBuffer.subarray(pIdx + 2, pIdx + 2 + topicLen));
           pIdx += 2 + topicLen;
           const qos = (header & 0x06) >> 1;
           if (qos > 0) {
@@ -225,7 +219,7 @@ export class RemoteBridge {
           if (pIdx <= packetEnd) {
             const payloadBytes = rxBuffer.subarray(pIdx, packetEnd);
             const rawStr = decodeUtf8(payloadBytes);
-            this.handleIncomingRaw(rawStr);
+            this.handleIncomingRaw(topic, rawStr);
           }
         }
 
@@ -281,7 +275,8 @@ export class RemoteBridge {
     return true;
   }
 
-  private handleIncomingRaw(rawStr: string) {
+  private handleIncomingRaw(topic: string, rawStr: string) {
+    if (!this.subTopics.includes(topic)) return;
     try {
       const parsed = JSON.parse(rawStr);
       if (!parsed || typeof parsed !== "object") return;
@@ -293,6 +288,11 @@ export class RemoteBridge {
       if (parsed._chunk) {
         const { id, idx, total, part } = parsed;
         if (typeof id !== "string" || typeof idx !== "number" || typeof total !== "number") return;
+        if (total < 1 || total > 200 || idx < 0 || idx >= total) return;
+        const now = Date.now();
+        for (const [k, b] of this.chunkBuffers) {
+          if (now - b.createdAt > 30000) this.chunkBuffers.delete(k);
+        }
         let buf = this.chunkBuffers.get(id);
         if (!buf) {
           buf = {
@@ -311,24 +311,24 @@ export class RemoteBridge {
           this.chunkBuffers.delete(id);
           const fullJson = buf.parts.join("");
           const fullObj = JSON.parse(fullJson);
-          this.callbacks.onMessage(fullObj);
+          this.callbacks.onMessage(topic, fullObj);
         }
         return;
       }
 
-      this.callbacks.onMessage(parsed);
+      this.callbacks.onMessage(topic, parsed);
     } catch {
       // Ignore malformed JSON
     }
   }
 
-  public send(data: Record<string, any>, retain = false) {
+  public publish(topic: string, data: Record<string, any>) {
     if (this.destroyed) return;
     const msgWithId = { ...data, _mid: randomId("m") };
     const fullStr = JSON.stringify(msgWithId);
 
     if (fullStr.length <= CHUNK_SIZE) {
-      this.publishRaw(fullStr, retain);
+      this.publishRaw(topic, fullStr);
     } else {
       const chunkGroupId = randomId("cg");
       const total = Math.ceil(fullStr.length / CHUNK_SIZE);
@@ -342,13 +342,13 @@ export class RemoteBridge {
           total,
           part,
         });
-        this.publishRaw(chunkMsg, false);
+        this.publishRaw(topic, chunkMsg);
       }
     }
   }
 
-  private publishRaw(payloadStr: string, retain: boolean) {
-    const packet = buildPublishPacket(this.pubTopic, payloadStr, retain);
+  private publishRaw(topic: string, payloadStr: string) {
+    const packet = buildPublishPacket(topic, payloadStr);
     for (const ws of this.sockets) {
       if (ws && ws.readyState === WebSocket.OPEN) {
         try {
