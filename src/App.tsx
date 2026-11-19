@@ -21,7 +21,7 @@ import {
   Flame,
   X,
 } from 'lucide-react';
-import { RemoteClient, clearSavedSession } from './remoteClient';
+import { RemoteClient, loadSavedSession, type SavedSecureSession } from './remoteClient';
 import { formatCodeDisplay, normalizeCode, randomHex } from './secureChannel';
 import { ALL_VALORANT_AGENTS } from './data/agents';
 import type {
@@ -103,6 +103,7 @@ const getRankColor = (rankName?: string): string => {
 
 export function App() {
   const qrTokenRef = useRef<string | undefined>(undefined);
+  const hasUrlPairParamsRef = useRef<boolean>(false);
 
   const [roomCode, setRoomCode] = useState<string>(() => {
     const params = new URLSearchParams(window.location.search);
@@ -112,27 +113,27 @@ export function App() {
     }
     const urlRoom = params.get('room');
     if (urlRoom || urlToken) {
+      hasUrlPairParamsRef.current = Boolean(urlRoom);
       window.history.replaceState({}, document.title, window.location.pathname);
     }
     if (urlRoom) {
-      const clean = normalizeCode(urlRoom).slice(0, 8);
-      if (clean.length >= 4) {
-        localStorage.setItem('sagebot_room_code', clean);
-        return clean;
-      }
+      return normalizeCode(urlRoom).slice(0, 8);
     }
-    return normalizeCode(localStorage.getItem('sagebot_room_code') || '').slice(0, 8);
+    return '';
   });
 
-  const [pinInput, setPinInput] = useState<string>(() => {
-    return roomCode || normalizeCode(localStorage.getItem('sagebot_room_code') || '').slice(0, 8);
-  });
+  const [pinInput, setPinInput] = useState<string>(() => roomCode);
 
+  const [isBootstrapping, setIsBootstrapping] = useState<boolean>(true);
+  const [pairedSession, setPairedSession] = useState<SavedSecureSession | null>(null);
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [isConnecting, setIsConnecting] = useState<boolean>(false);
+  const [isReconnecting, setIsReconnecting] = useState<boolean>(false);
+  const [isPcOffline, setIsPcOffline] = useState<boolean>(false);
   const [isPendingApproval, setIsPendingApproval] = useState<boolean>(false);
   const [pendingFingerprint, setPendingFingerprint] = useState<string>('');
   const [connectionError, setConnectionError] = useState<string>('');
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState<boolean>(false);
 
   // Exactly 4 primary footer tabs: 'status' | 'tracker' | 'shop' | 'settings'
   const [activeTab, setActiveTab] = useState<'status' | 'tracker' | 'shop' | 'settings'>('status');
@@ -147,7 +148,15 @@ export function App() {
   const [logs, setLogs] = useState<string[]>([]);
   const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
   const [isCapturingScreenshot, setIsCapturingScreenshot] = useState<boolean>(false);
+  const screenshotTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPcPacketTimeRef = useRef<number>(Date.now());
+
+  const clearScreenshotTimer = () => {
+    if (screenshotTimeoutRef.current) {
+      clearTimeout(screenshotTimeoutRef.current);
+      screenshotTimeoutRef.current = null;
+    }
+  };
 
   // Agent Select & Pregame state
   const [pregame, setPregame] = useState<PregameState | null>(null);
@@ -258,10 +267,10 @@ export function App() {
     }, 5500);
   };
 
-  // Connect to PC over End-to-End Encrypted Protocol (v3: PBKDF2 + ECDH + AES-256-GCM)
-  const connectToPC = (targetRoom: string) => {
-    const cleanRoom = normalizeCode(targetRoom).slice(0, 8);
-    if (!cleanRoom || cleanRoom.length < 4) {
+  // Connect to PC over End-to-End Encrypted Protocol v4 (ECDH + Non-extractable IndexedDB keys + HKDF)
+  const startRemoteClient = (opts: { code: string; qrToken?: string; resumeSession?: SavedSecureSession }) => {
+    const cleanRoom = normalizeCode(opts.code).slice(0, 8);
+    if (!opts.resumeSession && (!cleanRoom || cleanRoom.length < 4)) {
       setConnectionError('Please enter your 8-character pairing code');
       return;
     }
@@ -274,8 +283,10 @@ export function App() {
     }
 
     setRoomCode(cleanRoom);
-    setPinInput(cleanRoom);
+    if (cleanRoom) setPinInput(cleanRoom);
     setIsConnecting(true);
+    setIsReconnecting(Boolean(opts.resumeSession));
+    setIsPcOffline(false);
     setIsPendingApproval(false);
     setPendingFingerprint('');
     setConnectionError('');
@@ -286,49 +297,75 @@ export function App() {
       bridgeRef.current = null;
     }
 
-    const clientId = getOrCreateClientId();
+    const clientId = opts.resumeSession?.cid || getOrCreateClientId();
     const proposedName = getDeviceDefaultName();
-    const qrToken = qrTokenRef.current;
-    qrTokenRef.current = undefined;
 
     const client = new RemoteClient({
       cid: clientId,
-      code: cleanRoom,
-      qrToken,
+      code: cleanRoom || opts.resumeSession?.code || '',
+      qrToken: opts.qrToken,
       deviceName: proposedName,
+      resumeSession: opts.resumeSession,
       onPendingApproval: (fingerprint) => {
         setIsConnecting(false);
+        setIsReconnecting(false);
+        setIsPcOffline(false);
         setIsPendingApproval(true);
         setPendingFingerprint(fingerprint);
         setConnectionError('');
       },
-      onConnected: () => {
+      onStatusChange: (state) => {
+        if (state === 'pc_offline') {
+          connectedRef.current = false;
+          setIsConnected(false);
+          setIsConnecting(false);
+          setIsReconnecting(false);
+          setIsPcOffline(true);
+        } else if (state === 'reconnecting') {
+          connectedRef.current = false;
+          setIsConnected(false);
+          setIsConnecting(false);
+          setIsReconnecting(true);
+          setIsPcOffline(false);
+        } else {
+          setIsConnecting(true);
+        }
+      },
+      onConnected: (_deviceName, savedSession) => {
+        hasUrlPairParamsRef.current = false;
+        setPairedSession(savedSession);
         setIsPendingApproval(false);
         setPendingFingerprint('');
         connectedRef.current = true;
         lastPcPacketTimeRef.current = Date.now();
         setIsConnected(true);
         setIsConnecting(false);
+        setIsReconnecting(false);
+        setIsPcOffline(false);
         setConnectionError('');
-        localStorage.setItem('sagebot_room_code', cleanRoom);
         showToast('Connected to SageBot PC');
       },
       onError: (reason) => {
         connectedRef.current = false;
         setIsConnected(false);
         setIsConnecting(false);
+        setIsReconnecting(false);
+        setIsPcOffline(false);
         setIsPendingApproval(false);
         setPendingFingerprint('');
         setConnectionError(reason);
       },
       onRevoked: (reason) => {
+        clearScreenshotTimer();
         bridgeRef.current = null;
         connectedRef.current = false;
+        setPairedSession(null);
         setIsConnected(false);
         setIsConnecting(false);
+        setIsReconnecting(false);
+        setIsPcOffline(false);
         setIsPendingApproval(false);
         setPendingFingerprint('');
-        localStorage.removeItem('sagebot_room_code');
         setRoomCode('');
         setConnectionError(reason);
       },
@@ -341,8 +378,9 @@ export function App() {
           case 'pc_disconnected':
             connectedRef.current = false;
             setIsConnected(false);
-            setConnectionError('SageBot PC has disconnected.');
-            showToast('SageBot PC disconnected.');
+            setIsPcOffline(true);
+            setIsReconnecting(false);
+            showToast('SageBot PC went offline.');
             break;
           case 'sync':
             if (msg.status) setStatus(msg.status);
@@ -403,8 +441,14 @@ export function App() {
             }
             break;
           case 'screenshot':
+            clearScreenshotTimer();
             setScreenshotUrl(msg.payload);
             setIsCapturingScreenshot(false);
+            break;
+          case 'screenshot_error':
+            clearScreenshotTimer();
+            setIsCapturingScreenshot(false);
+            showToast(String(msg.payload || 'Screenshot capture failed.'));
             break;
           case 'notification': {
             const notifData = (msg.payload || msg) as any;
@@ -444,6 +488,12 @@ export function App() {
     bridgeRef.current = client;
   };
 
+  const connectToPC = (targetRoom: string) => {
+    const qrToken = qrTokenRef.current;
+    qrTokenRef.current = undefined;
+    startRemoteClient({ code: targetRoom, qrToken });
+  };
+
   const sendAction = (action: string, payload?: any) => {
     if (!bridgeRef.current || !isConnected) {
       showToast('Not connected to PC');
@@ -458,57 +508,54 @@ export function App() {
   };
 
   useEffect(() => {
-    if (roomCode && !isConnected && !isConnecting) {
-      connectToPC(roomCode);
-    }
+    let active = true;
+    (async () => {
+      if (hasUrlPairParamsRef.current && roomCode) {
+        setIsBootstrapping(false);
+        connectToPC(roomCode);
+        return;
+      }
+      const saved = await loadSavedSession();
+      if (!active) return;
+      setIsBootstrapping(false);
+      if (saved) {
+        setPairedSession(saved);
+        startRemoteClient({ code: saved.code, resumeSession: saved });
+      }
+    })();
+
     return () => {
+      active = false;
+      clearScreenshotTimer();
       if (bridgeRef.current) {
         bridgeRef.current.destroy();
       }
     };
   }, []);
 
-  // Disconnect from mobile if PC heartbeat ceases (10 seconds timeout)
+  // If PC heartbeat ceases while active, trigger challenge-response reconnect without deleting the paired session
   useEffect(() => {
     const watchdog = setInterval(() => {
-      if (connectedRef.current && Date.now() - lastPcPacketTimeRef.current > 10000) {
-        connectedRef.current = false;
-        setIsConnected(false);
-        setConnectionError('SageBot PC disconnected (connection lost).');
-        showToast('SageBot PC disconnected.');
+      if (connectedRef.current && Date.now() - lastPcPacketTimeRef.current > 12000) {
+        bridgeRef.current?.nudgeReconnect();
       }
-    }, 2000);
+    }, 3000);
     return () => clearInterval(watchdog);
   }, []);
 
-  // Auto-reconnect when device wakes from background or network recovers
-  useEffect(() => {
-    const handleResume = () => {
-      if (document.visibilityState === 'visible' && roomCode && !connectedRef.current && !isConnecting) {
-        connectToPC(roomCode);
-      }
-    };
-    const handleOnline = () => {
-      if (roomCode && !connectedRef.current && !isConnecting) {
-        connectToPC(roomCode);
-      }
-    };
-    document.addEventListener('visibilitychange', handleResume);
-    window.addEventListener('online', handleOnline);
-    return () => {
-      document.removeEventListener('visibilitychange', handleResume);
-      window.removeEventListener('online', handleOnline);
-    };
-  }, [roomCode, isConnecting]);
-
-  const handleDisconnect = () => {
+  const handleDisconnect = async () => {
+    clearScreenshotTimer();
+    setShowLogoutConfirm(false);
     if (bridgeRef.current) {
-      bridgeRef.current.destroy();
+      await bridgeRef.current.unpairAndLogout();
       bridgeRef.current = null;
     }
     connectedRef.current = false;
+    setPairedSession(null);
     setIsConnected(false);
     setIsConnecting(false);
+    setIsReconnecting(false);
+    setIsPcOffline(false);
     setIsPendingApproval(false);
     setPendingFingerprint('');
     setConnectionError('');
@@ -516,11 +563,10 @@ export function App() {
     setRoster(null);
     setStorefront(null);
     setScreenshotUrl(null);
+    setIsCapturingScreenshot(false);
     setLogs([]);
-    clearSavedSession();
-    localStorage.removeItem('sagebot_room_code');
-    localStorage.removeItem('sagebot_secret_token');
     setRoomCode('');
+    setPinInput('');
   };
 
   const handlePasteClipboard = async () => {
@@ -631,6 +677,32 @@ export function App() {
         </div>
       )}
 
+      {/* LOGOUT CONFIRMATION MODAL */}
+      {showLogoutConfirm && (
+        <div className="modal-backdrop" onClick={() => setShowLogoutConfirm(false)}>
+          <div className="danger-modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="danger-modal-icon">
+              <LogOut size={28} color="#f59e0b" />
+            </div>
+            <h3 className="danger-modal-title">Logout &amp; Unpair?</h3>
+            <p className="danger-modal-desc">
+              Removes the saved key from this phone and disconnects from SageBot PC. You will need a new QR or code to pair again.
+            </p>
+            <div className="danger-modal-actions">
+              <button className="modal-cancel-btn" onClick={() => setShowLogoutConfirm(false)}>
+                Cancel
+              </button>
+              <button
+                className="modal-destructive-btn"
+                onClick={() => { void handleDisconnect(); }}
+              >
+                Logout &amp; Unpair
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* TOP HEADER BAR: CHIBI SAGEBOT & CURRENCIES (VP, RP, KC, AGENT TOKENS) */}
       <header className="mobile-header">
         <div className="header-brand-clean">
@@ -679,92 +751,153 @@ export function App() {
             </>
           ) : (
             <div className="header-status-pill-subtle">
-              <span className={`status-micro-dot ${isConnecting ? 'amber' : 'green'}`}></span>
+              <span className={`status-micro-dot ${isConnecting || isReconnecting || isPcOffline ? 'amber' : 'green'}`}></span>
               <span className="status-micro-text">
-                {isConnecting ? 'Connecting...' : isConnected ? 'Connected' : 'Ready to pair'}
+                {isConnected
+                  ? 'Connected'
+                  : isPcOffline
+                    ? 'PC Offline'
+                    : isConnecting || isReconnecting
+                      ? 'Reconnecting...'
+                      : 'Ready to pair'}
               </span>
             </div>
           )}
         </div>
       </header>
 
-      {/* PAIRING VIEW (NOT CONNECTED) */}
+      {/* NOT CONNECTED: EITHER AUTO-RECONNECTING PAIRED SESSION OR FIRST-TIME PAIRING */}
       {!isConnected && (
         <main className="mobile-body pairing-body">
-          <div className="sleek-pairing-card">
-            <div className="pairing-hero-icon">
-              <img src="/sage.ico" alt="SageBot" className="pairing-chibi-logo" />
+          {isBootstrapping ? (
+            <div className="sleek-pairing-card">
+              <div className="pairing-hero-icon">
+                <img src="/sage.ico" alt="SageBot" className="pairing-chibi-logo" />
+              </div>
+              <h2 className="pairing-main-title">SageBot Remote</h2>
+              <p className="pairing-main-desc">Loading secure session...</p>
             </div>
+          ) : pairedSession && !hasUrlPairParamsRef.current ? (
+            <div className="sleek-pairing-card">
+              <div className="pairing-hero-icon">
+                <img src="/sage.ico" alt="SageBot" className="pairing-chibi-logo" />
+              </div>
 
-            <h2 className="pairing-main-title">Pair with SageBot PC</h2>
-            <p className="pairing-main-desc">
-              Enter the 8-character code from your PC’s <strong>Remote</strong> tab.
-            </p>
+              <h2 className="pairing-main-title">
+                {isPcOffline ? 'SageBot PC Offline' : 'Reconnecting...'}
+              </h2>
+              <p className="pairing-main-desc">
+                Paired as <strong>{pairedSession.name}</strong>.
+                {isPcOffline
+                  ? ' Waiting for SageBot PC to come online — your pairing key is saved and will reconnect automatically.'
+                  : ' Switching Wi-Fi / 5G or waking up keeps your pairing key intact.'}
+              </p>
 
-            <div className="code-input-container">
-              <div className="input-with-paste">
-                <input
-                  type="text"
-                  maxLength={9}
-                  placeholder="Enter 8-character code"
-                  value={formatCodeDisplay(pinInput)}
-                  onChange={(e) => setPinInput(normalizeCode(e.target.value).slice(0, 8))}
-                  className="sleek-pin-input tabular-nums"
-                  autoComplete="off"
-                  autoCorrect="off"
-                  spellCheck="false"
-                />
+              <div className="reconnect-actions-stack">
                 <button
                   type="button"
-                  className="paste-action-btn"
-                  onClick={handlePasteClipboard}
-                  title="Paste from clipboard"
+                  className="sleek-connect-btn"
+                  onClick={() => bridgeRef.current?.nudgeReconnect()}
                 >
-                  <ClipboardPaste size={16} />
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <RefreshCw size={15} className={!isPcOffline && (isConnecting || isReconnecting) ? 'spin' : ''} />
+                    {isPcOffline ? 'Retry Connection' : 'Reconnect Now'}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  className="secondary-unpair-btn"
+                  onClick={() => setShowLogoutConfirm(true)}
+                >
+                  <LogOut size={14} />
+                  <span>Logout &amp; Pair Another PC</span>
                 </button>
               </div>
 
-              <button
-                className="sleek-connect-btn"
-                disabled={isConnecting || pinInput.trim().length < 4}
-                onClick={() => connectToPC(pinInput)}
-              >
-                {isConnecting ? (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                    <RefreshCw size={15} className="spin" /> Connecting...
-                  </span>
-                ) : (
-                  'Connect'
-                )}
-              </button>
-            </div>
-
-            {isPendingApproval && (
-              <div className="pending-approval-banner">
-                <Radio size={16} className="pulse-icon" />
-                <div className="pending-approval-text">
-                  <strong>Approval Required on PC</strong>
-                  <span>Please check SageBot on your PC and click Approve to pair this device.</span>
-                  {pendingFingerprint && (
-                    <span style={{ marginTop: 4, fontFamily: 'monospace', fontWeight: 800, color: '#38bdf8', letterSpacing: 1.5 }}>
-                      Key: {pendingFingerprint}
-                    </span>
-                  )}
+              {connectionError && (
+                <div className="sleek-error-callout" role="alert">
+                  <AlertTriangle size={15} />
+                  <span>{connectionError}</span>
                 </div>
-              </div>
-            )}
-
-            {connectionError && !isPendingApproval && (
-              <div className="sleek-error-callout" role="alert">
-                <AlertTriangle size={15} />
-                <span>{connectionError}</span>
-              </div>
-            )}
-
-            <div className="pairing-footer-hint">
-              <span>💡 Scanning the QR code in SageBot PC pairs automatically with zero typing.</span>
+              )}
             </div>
-          </div>
+          ) : (
+            <div className="sleek-pairing-card">
+              <div className="pairing-hero-icon">
+                <img src="/sage.ico" alt="SageBot" className="pairing-chibi-logo" />
+              </div>
+
+              <h2 className="pairing-main-title">SageBot Remote</h2>
+              <p className="pairing-main-desc">
+                Enter the code from SageBot <strong>Remote</strong>.
+              </p>
+
+              <div className="code-input-container">
+                <div className="input-with-paste">
+                  <input
+                    type="text"
+                    maxLength={9}
+                    placeholder="Enter 8-character code"
+                    value={formatCodeDisplay(pinInput)}
+                    onChange={(e) => setPinInput(normalizeCode(e.target.value).slice(0, 8))}
+                    className="sleek-pin-input tabular-nums"
+                    autoComplete="off"
+                    autoCorrect="off"
+                    spellCheck="false"
+                  />
+                  <button
+                    type="button"
+                    className="paste-action-btn"
+                    onClick={handlePasteClipboard}
+                    title="Paste from clipboard"
+                  >
+                    <ClipboardPaste size={16} />
+                  </button>
+                </div>
+
+                <button
+                  className="sleek-connect-btn"
+                  disabled={isConnecting || pinInput.trim().length < 4}
+                  onClick={() => connectToPC(pinInput)}
+                >
+                  {isConnecting ? (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                      <RefreshCw size={15} className="spin" /> Connecting...
+                    </span>
+                  ) : (
+                    'Connect'
+                  )}
+                </button>
+              </div>
+
+              {isPendingApproval && (
+                <div className="pending-approval-banner">
+                  <Radio size={16} className="pulse-icon" />
+                  <div className="pending-approval-text">
+                    <strong>Approval Required on PC</strong>
+                    <span>Please check SageBot on your PC and click Approve to pair this device.</span>
+                    {pendingFingerprint && (
+                      <span style={{ marginTop: 4, fontFamily: 'monospace', fontWeight: 800, color: '#38bdf8', letterSpacing: 1.5 }}>
+                        Key: {pendingFingerprint}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {connectionError && !isPendingApproval && (
+                <div className="sleek-error-callout" role="alert">
+                  <AlertTriangle size={15} />
+                  <span>{connectionError}</span>
+                </div>
+              )}
+
+              <div className="pairing-footer-hint">
+                <span>💡 Open the pairing window on PC first. Scanning the QR pairs automatically without confirmation.</span>
+              </div>
+            </div>
+          )}
         </main>
       )}
 
@@ -1037,10 +1170,8 @@ export function App() {
                     {remoteConfig?.anti_afk_mode === 1
                       ? 'Hold Mode'
                       : remoteConfig?.anti_afk_mode === 2
-                        ? 'WASD Cycle'
-                        : remoteConfig?.anti_afk_mode === 3
-                          ? 'Custom Macro'
-                          : 'Click Mode'}
+                        ? 'Comms'
+                        : 'Click Mode'}
                   </span>
                 </div>
                 <div className="antiafk-details-row">
@@ -1070,8 +1201,14 @@ export function App() {
                     className="screenshot-action-btn"
                     disabled={isCapturingScreenshot}
                     onClick={() => {
+                      clearScreenshotTimer();
                       setIsCapturingScreenshot(true);
                       sendAction('take_screenshot');
+                      screenshotTimeoutRef.current = setTimeout(() => {
+                        screenshotTimeoutRef.current = null;
+                        setIsCapturingScreenshot(false);
+                        showToast('Capture timed out — tap to retry');
+                      }, 12000);
                     }}
                   >
                     <RefreshCw size={14} className={isCapturingScreenshot ? 'spin' : ''} />
@@ -1571,7 +1708,7 @@ export function App() {
                       <span className="danger-opt-name">Logout &amp; Unpair</span>
                       <span className="danger-opt-desc">Disconnect remote session and clear saved room code.</span>
                     </div>
-                    <button className="btn-logout-action" onClick={handleDisconnect}>
+                    <button className="btn-logout-action" onClick={() => setShowLogoutConfirm(true)}>
                       <LogOut size={15} />
                       <span>Logout</span>
                     </button>

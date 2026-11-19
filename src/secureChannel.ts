@@ -1,26 +1,30 @@
 /**
- * SageBot Remote secure channel (protocol v3).
+ * SageBot Remote secure channel (protocol v4).
  *
  * This file is shared byte-for-byte between SageBot PC and SageBot Remote.
  *
  * The MQTT brokers are public, so everything published there must be assumed
  * readable by strangers. The rules are:
- *   1. The 8-character code is never published. Topics and proofs are derived
- *      from it with PBKDF2, so it cannot be read or cheaply brute-forced.
- *   2. Secrets are never published. Each phone agrees on its own AES-256 key
- *      with the PC through an ECDH key exchange.
- *   3. Every message after pairing is AES-GCM encrypted and authenticated with
- *      that per-device key, time-stamped and replay-checked. Anything that fails
- *      to decrypt is dropped silently.
+ *   1. The 8-character pairing code is never published. Topics and proofs are
+ *      derived from it with PBKDF2, and PC only listens while the 3-minute
+ *      pairing window is explicitly open.
+ *   2. Secrets are never published. Pairing uses ECDH P-256 to agree on a
+ *      256-bit master secret. Phone keeps only non-extractable WebCrypto
+ *      HMAC + HKDF handles (in IndexedDB); PC stores the secret encrypted
+ *      with Windows DPAPI.
+ *   3. Every reconnect performs a signed nonce challenge-response (`auth_hello`
+ *      -> `auth_ok`) to derive a fresh per-connection AES-256-GCM key via HKDF.
+ *   4. Every session message is AES-256-GCM encrypted with strict AAD, 2-minute
+ *      timestamp window, and IV replay protection.
  */
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
-const PROTOCOL = "sb/v3";
-const PAIR_SALT = "sagebot-remote/pair/v3";
+const PROTOCOL = "sb/v4";
+const PAIR_SALT = "sagebot-remote/pair/v4";
 const PAIR_ITERATIONS = 150_000;
-const MAX_CLOCK_SKEW_MS = 10 * 60 * 1000;
+const MAX_CLOCK_SKEW_MS = 2 * 60 * 1000;
 const CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"; // 32 chars -> unbiased with & 31
 
 export type Direction = "pc" | "m";
@@ -38,8 +42,24 @@ export interface PairSecrets {
   proofKey: CryptoKey;
 }
 
+export interface MasterKeyBundle {
+  hmacKey: CryptoKey;
+  hkdfKey: CryptoKey;
+}
+
+export interface DerivedPairResult {
+  keyB64: string;
+  pairBoxKey: CryptoKey;
+  bundle: MasterKeyBundle;
+  fingerprint: string;
+}
+
 export function isSecureCryptoAvailable(): boolean {
   return typeof crypto !== "undefined" && !!crypto.subtle;
+}
+
+export function isTimestampFresh(ts: unknown): boolean {
+  return typeof ts === "number" && Number.isFinite(ts) && Math.abs(Date.now() - ts) <= MAX_CLOCK_SKEW_MS;
 }
 
 export function toB64(data: ArrayBuffer | Uint8Array): string {
@@ -129,6 +149,18 @@ export async function importTokenKey(token: string): Promise<CryptoKey> {
   return crypto.subtle.importKey("raw", enc.encode(token), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
 }
 
+export async function importMasterKeysFromBytes(raw: ArrayBuffer | Uint8Array<ArrayBuffer>): Promise<MasterKeyBundle> {
+  const [hmacKey, hkdfKey] = await Promise.all([
+    crypto.subtle.importKey("raw", raw, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]),
+    crypto.subtle.importKey("raw", raw, "HKDF", false, ["deriveKey"]),
+  ]);
+  return { hmacKey, hkdfKey };
+}
+
+export async function importMasterKeysFromB64(keyB64: string): Promise<MasterKeyBundle> {
+  return importMasterKeysFromBytes(fromB64(keyB64));
+}
+
 export async function generateEcdhKeyPair(): Promise<{ keyPair: CryptoKeyPair; pub: string }> {
   const keyPair = (await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, false, [
     "deriveBits",
@@ -138,43 +170,70 @@ export async function generateEcdhKeyPair(): Promise<{ keyPair: CryptoKeyPair; p
 }
 
 /**
- * Derives the per-device AES-256 key (base64) and a 6-digit fingerprint that
- * both screens show so the user can confirm nobody is in the middle.
+ * Derives the per-device 256-bit master secret, non-extractable WebCrypto
+ * handles, one-time pairing box key, and a 6-digit visual fingerprint.
  */
-export async function deriveSessionKey(
+export async function derivePairResult(
   privateKey: CryptoKey,
   peerPub: string,
   pcPub: string,
   mobilePub: string,
   cid: string
-): Promise<{ key: string; fingerprint: string }> {
+): Promise<DerivedPairResult> {
   const peer = await crypto.subtle.importKey("raw", fromB64(peerPub), { name: "ECDH", namedCurve: "P-256" }, false, []);
   const shared = await crypto.subtle.deriveBits({ name: "ECDH", public: peer }, privateKey, 256);
   const hkdf = await crypto.subtle.importKey("raw", shared, "HKDF", false, ["deriveBits"]);
   const transcript = enc.encode(`${pcPub}|${mobilePub}`);
   const salt = await crypto.subtle.digest("SHA-256", transcript);
-  const keyBits = await crypto.subtle.deriveBits(
-    { name: "HKDF", hash: "SHA-256", salt, info: enc.encode(`sagebot-remote/session/${cid}`) },
+  const masterBits = await crypto.subtle.deriveBits(
+    { name: "HKDF", hash: "SHA-256", salt, info: enc.encode(`sagebot-remote/master/v4/${cid}`) },
     hkdf,
     256
   );
-  const fpHash = new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(`fp|${pcPub}|${mobilePub}`)));
+
+  const [pairBoxKey, bundle, fpHashBuf] = await Promise.all([
+    crypto.subtle.importKey("raw", masterBits, "AES-GCM", false, ["encrypt", "decrypt"]),
+    importMasterKeysFromBytes(masterBits),
+    crypto.subtle.digest("SHA-256", enc.encode(`fp|${pcPub}|${mobilePub}`)),
+  ]);
+
+  const fpHash = new Uint8Array(fpHashBuf);
   const fpNum = ((fpHash[0] << 24) | (fpHash[1] << 16) | (fpHash[2] << 8) | fpHash[3]) >>> 0;
   const digits = String(fpNum % 1_000_000).padStart(6, "0");
-  return { key: toB64(keyBits), fingerprint: `${digits.slice(0, 3)} ${digits.slice(3)}` };
+
+  return {
+    keyB64: toB64(masterBits),
+    pairBoxKey,
+    bundle,
+    fingerprint: `${digits.slice(0, 3)} ${digits.slice(3)}`,
+  };
 }
 
-const aesKeyCache = new Map<string, Promise<CryptoKey>>();
+/**
+ * Derives a fresh non-extractable AES-256-GCM key for a single authenticated
+ * WebSocket session from the master HKDF key + both handshake nonces.
+ */
+export async function deriveConnectionKey(
+  hkdfKey: CryptoKey,
+  cid: string,
+  clientNonce: string,
+  pcNonce: string
+): Promise<CryptoKey> {
+  return crypto.subtle.deriveKey(
+    {
+      name: "HKDF",
+      hash: "SHA-256",
+      salt: enc.encode(`conn|${clientNonce}|${pcNonce}`),
+      info: enc.encode(`sagebot-remote/conn/v4/${cid}`),
+    },
+    hkdfKey,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"]
+  );
+}
+
 const seenIvs = new Map<string, number>();
-
-function getAesKey(keyB64: string): Promise<CryptoKey> {
-  let k = aesKeyCache.get(keyB64);
-  if (!k) {
-    k = crypto.subtle.importKey("raw", fromB64(keyB64), "AES-GCM", false, ["encrypt", "decrypt"]);
-    aesKeyCache.set(keyB64, k);
-  }
-  return k;
-}
 
 function rememberIv(iv: string, now: number): boolean {
   if (seenIvs.has(iv)) return false;
@@ -187,33 +246,31 @@ function rememberIv(iv: string, now: number): boolean {
   return true;
 }
 
-export async function seal(keyB64: string, dir: Direction, cid: string, data: Record<string, any>): Promise<Envelope> {
-  const key = await getAesKey(keyB64);
+export async function seal(aesKey: CryptoKey, dir: Direction, cid: string, data: Record<string, any>): Promise<Envelope> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const plaintext = enc.encode(JSON.stringify({ ...data, _ts: Date.now() }));
   const ct = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv, additionalData: enc.encode(`sb3|${dir}|${cid}`) },
-    key,
+    { name: "AES-GCM", iv, additionalData: enc.encode(`sb4|${dir}|${cid}`) },
+    aesKey,
     plaintext
   );
   return { type: "sec", cid, iv: toB64(iv), ct: toB64(ct) };
 }
 
 /** Returns the decrypted message, or null if it is forged, tampered, stale or replayed. */
-export async function open(keyB64: string, dir: Direction, env: any): Promise<Record<string, any> | null> {
+export async function open(aesKey: CryptoKey, dir: Direction, env: any): Promise<Record<string, any> | null> {
   if (!env || env.type !== "sec" || typeof env.cid !== "string" || typeof env.iv !== "string" || typeof env.ct !== "string") {
     return null;
   }
   try {
-    const key = await getAesKey(keyB64);
     const plain = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: fromB64(env.iv), additionalData: enc.encode(`sb3|${dir}|${env.cid}`) },
-      key,
+      { name: "AES-GCM", iv: fromB64(env.iv), additionalData: enc.encode(`sb4|${dir}|${env.cid}`) },
+      aesKey,
       fromB64(env.ct)
     );
     const data = JSON.parse(dec.decode(plain));
     const now = Date.now();
-    if (!data || typeof data._ts !== "number" || Math.abs(now - data._ts) > MAX_CLOCK_SKEW_MS) return null;
+    if (!data || !isTimestampFresh(data._ts)) return null;
     if (!rememberIv(env.iv, now)) return null;
     delete data._ts;
     return data;
@@ -221,4 +278,3 @@ export async function open(keyB64: string, dir: Direction, env: any): Promise<Re
     return null;
   }
 }
-

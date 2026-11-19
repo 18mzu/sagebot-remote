@@ -143,6 +143,7 @@ export interface RemoteMessage {
   | "status"
   | "roster"
   | "screenshot"
+  | "screenshot_error"
   | "log"
   | "toast"
   | "action_ack"

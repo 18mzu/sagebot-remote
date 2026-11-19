@@ -1023,6 +1023,7 @@ body {
 
 .player-info-col {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1032,6 +1033,7 @@ body {
   display: flex;
   align-items: center;
   gap: 5px;
+  min-width: 0;
 }
 
 .player-display-name {
@@ -1780,6 +1782,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
   margin-bottom: 12px;
 }
 
@@ -1801,6 +1805,10 @@ body {
   font-size: 11.5px;
   font-weight: 700;
   color: var(--text-secondary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* SMART COMP DETECTOR BAR */
@@ -1855,12 +1863,14 @@ body {
 /* LIVE TEAMMATES SLOTS */
 .teammates-slots-row {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 6px;
   margin-bottom: 14px;
 }
 
 .teammate-slot {
+  min-width: 0;
+  overflow: hidden;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
@@ -1907,6 +1917,8 @@ body {
 }
 
 .teammate-slot-name {
+  display: block;
+  width: 100%;
   font-size: 9.5px;
   font-weight: 700;
   color: var(--text-primary);
@@ -2492,4 +2504,42 @@ body {
   font-weight: 700;
   font-style: italic;
   color: #cbd5e1;
+}
+
+.reconnect-actions-stack {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.secondary-unpair-btn {
+  width: 100%;
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.08);
+  color: #f87171;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.secondary-unpair-btn:active {
+  transform: scale(0.98);
+  background: rgba(239, 68, 68, 0.16);
+}
+
+.idle-player-sub,
+.header-status-pill-subtle {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
